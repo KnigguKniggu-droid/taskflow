@@ -5,16 +5,26 @@ from datetime import date
 
 from flask import Blueprint, jsonify, request
 from werkzeug.exceptions import HTTPException
+from werkzeug.routing import IntegerConverter
 
 from . import services
 
 bp = Blueprint("api", __name__)
 
 
+class IdConverter(IntegerConverter):
+    """Like the built-in ``int`` converter, but accepts ASCII digits only."""
+
+    regex = r"[0-9]+"
+
+
 def _json_body():
-    data = request.get_json(silent=True)
+    try:
+        data = request.get_json(silent=True)
+    except RecursionError:  # pathologically nested JSON
+        data = None
     if not isinstance(data, dict):
-        raise services.ValidationError("request body must be a JSON object")
+        raise services.ValidationError("request body must be a valid JSON object")
     return data
 
 
@@ -40,12 +50,12 @@ def list_overdue_tasks():
     return jsonify({"tasks": services.list_overdue_tasks(date.today())})
 
 
-@bp.get("/tasks/<int:task_id>")
+@bp.get("/tasks/<id:task_id>")
 def get_task(task_id):
     return jsonify(services.get_task(task_id))
 
 
-@bp.post("/tasks/<int:task_id>/complete")
+@bp.post("/tasks/<id:task_id>/complete")
 def complete_task(task_id):
     return jsonify(services.complete_task(task_id))
 

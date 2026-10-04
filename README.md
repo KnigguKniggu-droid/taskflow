@@ -31,7 +31,8 @@ The SQLite database is created on first start at `instance/taskflow.sqlite`; set
 
 ## API
 
-Request and response bodies are JSON. Errors come back as `{"error": "<message>"}` with a
+Request and response bodies are JSON. Unknown fields in a request body are rejected, and bodies
+larger than 64 KiB are refused with `413`. Errors come back as `{"error": "<message>"}` with a
 4xx status code.
 
 | Method | Path | Description |
@@ -49,7 +50,7 @@ Request and response bodies are JSON. Errors come back as `{"error": "<message>"
 |---|---|---|
 | `title` | string | Required, up to 200 characters. |
 | `description` | string | Optional, up to 2000 characters. |
-| `tags` | list of strings, or one comma-separated string | Optional. Stored lowercase and de-duplicated. A tag uses letters, digits, `-` or `_` (up to 32 characters); at most 10 tags. |
+| `tags` | list of strings, or one comma-separated string | Optional. Stored lowercase and de-duplicated. A tag starts with a letter or digit and uses only `a-z`, `0-9`, `-` or `_` (up to 32 characters); at most 10 tags. |
 | `due_date` | string | Optional, `YYYY-MM-DD`. |
 | `assignee_id` | integer | Optional; the id of an existing user. |
 

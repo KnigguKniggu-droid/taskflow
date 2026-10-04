@@ -16,6 +16,8 @@ MAX_DESCRIPTION_LENGTH = 2000
 MAX_TAGS = 10
 TAG_PATTERN = re.compile(r"[a-z0-9][a-z0-9_-]{0,31}")
 DUE_DATE_PATTERN = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}")
+USER_FIELDS = frozenset({"name"})
+TASK_FIELDS = frozenset({"title", "description", "tags", "due_date", "assignee_id"})
 
 SELECT_TASKS = (
     "SELECT id, title, description, tags, due_date, assignee_id, completed, created_at"
@@ -33,6 +35,7 @@ class NotFoundError(Exception):
 
 def create_user(data):
     """Create a user from a request payload and return it."""
+    _reject_unknown_fields(data, USER_FIELDS)
     name = _required_text(data, "name", MAX_NAME_LENGTH)
     db = get_db()
     with db:
@@ -42,6 +45,7 @@ def create_user(data):
 
 def create_task(data):
     """Validate a request payload, store the task and return it."""
+    _reject_unknown_fields(data, TASK_FIELDS)
     title = _required_text(data, "title", MAX_TITLE_LENGTH)
     description = _optional_text(data, "description", MAX_DESCRIPTION_LENGTH)
     tags = normalize_tags(data.get("tags"))
@@ -130,13 +134,13 @@ def normalize_tags(raw):
             continue
         if not TAG_PATTERN.fullmatch(tag):
             raise ValidationError(
-                f"invalid tag {item.strip()!r}: use letters, digits, '-' or '_' "
-                "(at most 32 characters)"
+                f"invalid tag {item.strip()!r}: a tag starts with a letter or digit and uses "
+                "only a-z, 0-9, '-' or '_' (at most 32 characters)"
             )
         if tag not in tags:
             tags.append(tag)
-    if len(tags) > MAX_TAGS:
-        raise ValidationError(f"a task can have at most {MAX_TAGS} tags")
+            if len(tags) > MAX_TAGS:
+                raise ValidationError(f"a task can have at most {MAX_TAGS} tags")
     return ",".join(tags)
 
 
@@ -174,14 +178,17 @@ def _user_exists(user_id):
     return row is not None
 
 
+def _reject_unknown_fields(data, allowed):
+    unknown = sorted(set(data) - allowed)
+    if unknown:
+        raise ValidationError("unknown field(s): " + ", ".join(unknown[:5]))
+
+
 def _required_text(data, field, max_length):
     value = data.get(field)
     if not isinstance(value, str) or not value.strip():
         raise ValidationError(f"{field} is required and must be a non-empty string")
-    value = value.strip()
-    if len(value) > max_length:
-        raise ValidationError(f"{field} must be at most {max_length} characters")
-    return value
+    return _checked_text(value.strip(), field, max_length)
 
 
 def _optional_text(data, field, max_length):
@@ -190,9 +197,17 @@ def _optional_text(data, field, max_length):
         return ""
     if not isinstance(value, str):
         raise ValidationError(f"{field} must be a string")
-    value = value.strip()
+    return _checked_text(value.strip(), field, max_length)
+
+
+def _checked_text(value, field, max_length):
     if len(value) > max_length:
         raise ValidationError(f"{field} must be at most {max_length} characters")
+    try:
+        value.encode("utf-8")
+    except UnicodeEncodeError:
+        # JSON can carry lone surrogate escapes, which cannot be encoded as UTF-8 for SQLite.
+        raise ValidationError(f"{field} must be valid Unicode text") from None
     return value
 
 
