@@ -1,0 +1,31 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+
+# Virtual environments
+.venv/
+venv/
+
+# Local data (the app creates instance/taskflow.sqlite on first start)
+instance/
+*.sqlite
+*.sqlite3
+*.db
+
+# Secrets and local configuration
+.env
+.env.*
+
+# Tooling caches
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Editor and OS files
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
