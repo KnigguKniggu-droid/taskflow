@@ -68,6 +68,34 @@ class TaskApiTestCase(unittest.TestCase):
 
         self.assertNotIn(task["id"], self.overdue_ids())
 
+    def test_completed_overdue_task_excluded(self):
+        # A task that is past due but already completed must NOT appear in the
+        # overdue list.  This is the regression test for the NULL/0 bug: before
+        # the fix, *no* task (completed or not) appeared because newly created
+        # tasks had completed=NULL, which made `completed = 0` evaluate to NULL
+        # and silently exclude every row.
+        past = (date.today() - timedelta(days=1)).isoformat()
+        task = self.create_task(due_date=past)
+        self.client.post(f"/tasks/{task['id']}/complete")
+
+        self.assertNotIn(task["id"], self.overdue_ids())
+
+    def test_overdue_excludes_tasks_without_due_date(self):
+        # Tasks with no due_date must never appear in the overdue list.
+        task = self.create_task()
+
+        self.assertNotIn(task["id"], self.overdue_ids())
+
+    def test_new_task_completed_field_is_false(self):
+        # Newly created tasks must report completed=False (not NULL coerced).
+        # This guards the schema DEFAULT 0 invariant at the API boundary.
+        task = self.create_task()
+
+        self.assertFalse(task["completed"])
+        fetched = self.client.get(f"/tasks/{task['id']}").get_json()
+        self.assertFalse(fetched["completed"])
+        self.assertIs(fetched["completed"], False)
+
 
 if __name__ == "__main__":
     unittest.main()
