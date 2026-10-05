@@ -104,7 +104,7 @@ All request and response bodies are JSON. Errors are returned as `{"error": "<me
 |--------|--------------------------|----------------------------------------------------------|
 | POST   | `/users`                 | Create a user. Body: `{"name": "..."}`. Returns 201.     |
 | POST   | `/tasks`                 | Create a task (fields below). Returns 201.               |
-| GET    | `/tasks`                 | List tasks. Optional filter: `?assignee_id=<id>`.        |
+| GET    | `/tasks`                 | List tasks. Optional filters: `?assignee_id=<id>` and/or `?tag=<tag>`. |
 | GET    | `/tasks/<id>`            | Get one task; 404 if not found.                          |
 | POST   | `/tasks/<id>/complete`   | Mark a task completed; 404 if not found.                 |
 | GET    | `/tasks/overdue`         | List open tasks whose due date is before today.          |
@@ -145,6 +145,8 @@ so every test is fully isolated with no shared state.
   lone surrogate escapes that SQLite cannot store).
 - IDs from JSON bodies go through `parse_id(value, field)` (checks int, not bool, positive,
   within SQLite INTEGER range). IDs from query strings go through `parse_id_param`.
+- Tag query-string values go through `parse_tag_param`: strips whitespace, lowercases, validates
+  against `TAG_PATTERN`, and returns `None` for blank input (treated as no filter).
 - Tags: `normalize_tags(raw)` accepts a list or comma-separated string, strips and lowercases
   each item, validates against `TAG_PATTERN`, de-duplicates, and enforces the 10-tag limit.
   The result is stored in SQLite as a comma-joined string and split back on read.
@@ -179,11 +181,11 @@ so every test is fully isolated with no shared state.
 
 ## Feature Status
 
-| Feature                               | Status                          |
-|---------------------------------------|---------------------------------|
-| Create / get / list tasks             | Implemented                     |
-| Complete a task                       | Implemented                     |
-| Overdue task listing                  | Implemented                     |
-| Filter tasks by assignee (`?assignee_id=`) | Implemented                |
-| Create users                          | Implemented                     |
-| Filter tasks by tag (`?tag=<tag>`)    | **Planned, not yet implemented**. `GET /tasks` silently ignores the `tag` parameter; `services.list_tasks` has no tag-filter logic. |
+| Feature                               | Status          |
+|---------------------------------------|-----------------|
+| Create / get / list tasks             | Implemented     |
+| Complete a task                       | Implemented     |
+| Overdue task listing                  | Implemented     |
+| Filter tasks by assignee (`?assignee_id=`) | Implemented |
+| Create users                          | Implemented     |
+| Filter tasks by tag (`?tag=<tag>`)    | Implemented     |

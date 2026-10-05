@@ -29,3 +29,6 @@ htmlcov/
 .vscode/
 .DS_Store
 Thumbs.db
+
+# Bob scratch files (generated during sessions; not project artefacts)
+.bob/tmp/

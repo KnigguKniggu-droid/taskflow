@@ -39,7 +39,7 @@ larger than 64 KiB are refused with `413`. Errors come back as `{"error": "<mess
 |---|---|---|
 | `POST` | `/users` | Create a user. Body: `{"name": "..."}`. Returns `201`. |
 | `POST` | `/tasks` | Create a task (fields below). Returns `201`. |
-| `GET` | `/tasks` | List tasks. Optional filter: `?assignee_id=<id>`. |
+| `GET` | `/tasks` | List tasks. Optional filters: `?assignee_id=<id>` and/or `?tag=<tag>`. |
 | `GET` | `/tasks/<id>` | Get one task; `404` if it does not exist. |
 | `POST` | `/tasks/<id>/complete` | Mark a task as completed; `404` if it does not exist. |
 | `GET` | `/tasks/overdue` | List open tasks whose due date is before today. |
@@ -69,23 +69,63 @@ A task is returned like this:
 }
 ```
 
-List endpoints return `{"tasks": [...]}`, ordered by id (`/tasks/overdue` is ordered by due date).
+List endpoints return `{"tasks": [...]}`, ordered by id (`/tasks/overdue` is ordered by due date, then id).
+
+### Filtering tasks
+
+`GET /tasks` accepts two independent, combinable query parameters:
+
+| Parameter | Behaviour |
+|---|---|
+| `?assignee_id=<id>` | Return only tasks assigned to that user id. |
+| `?tag=<tag>` | Return only tasks that carry that exact tag. |
+
+**Tag filter details:**
+
+- Matching is exact — `?tag=back` does **not** match a task tagged `backend`.
+- The value is normalised to lowercase before matching, so `?tag=Backend` and
+  `?tag=backend` return the same results.
+- A blank value (`?tag=` or `?tag=   `) is treated as "no filter" and returns all tasks.
+- An invalid value (e.g. uppercase letters, spaces, or characters outside `[a-z0-9_-]`)
+  returns `400 {"error": "..."}`.
+
+Both parameters may be combined: `?tag=backend&assignee_id=1` returns tasks that have
+the tag `backend` **and** are assigned to user 1.
 
 ### Examples
 
 ```bash
-curl -X POST http://127.0.0.1:5000/users -H "Content-Type: application/json" -d '{"name": "Ada"}'
-curl -X POST http://127.0.0.1:5000/tasks -H "Content-Type: application/json" \
+# Create a user
+curl -X POST http://127.0.0.1:5000/users \
+  -H "Content-Type: application/json" -d '{"name": "Ada"}'
+
+# Create a task with tags and a due date
+curl -X POST http://127.0.0.1:5000/tasks \
+  -H "Content-Type: application/json" \
   -d '{"title": "Prepare release notes", "tags": ["backend", "docs"], "due_date": "2026-10-10", "assignee_id": 1}'
+
+# Filter by assignee
 curl "http://127.0.0.1:5000/tasks?assignee_id=1"
+
+# Filter by tag
+curl "http://127.0.0.1:5000/tasks?tag=backend"
+
+# Combined filter: tag + assignee
+curl "http://127.0.0.1:5000/tasks?tag=backend&assignee_id=1"
+
+# Mark complete
 curl -X POST http://127.0.0.1:5000/tasks/1/complete
+
+# List overdue tasks
 curl http://127.0.0.1:5000/tasks/overdue
 ```
 
 Windows PowerShell:
 
 ```powershell
-Invoke-RestMethod -Method Post -Uri http://127.0.0.1:5000/users -ContentType "application/json" -Body '{"name": "Ada"}'
+Invoke-RestMethod -Method Post -Uri http://127.0.0.1:5000/users `
+  -ContentType "application/json" -Body '{"name": "Ada"}'
+Invoke-RestMethod "http://127.0.0.1:5000/tasks?tag=backend&assignee_id=1"
 Invoke-RestMethod http://127.0.0.1:5000/tasks/overdue
 ```
 
@@ -95,12 +135,9 @@ Invoke-RestMethod http://127.0.0.1:5000/tasks/overdue
 python -m unittest tests.test_tasks -v
 ```
 
-Each test runs against its own temporary database.
-
-## Feature status
-
-Filtering tasks by tag (`GET /tasks?tag=<tag>`) is planned but not implemented yet;
-`GET /tasks` currently ignores a `tag` parameter.
+Each test runs against its own temporary SQLite database; there is no shared state between tests.
+The suite covers task creation, listing, overdue detection, tag filtering (exact match,
+combined filters, edge cases), schema migration, and existing-database upgrade behaviour.
 
 ## Project layout
 
@@ -113,4 +150,5 @@ app/
 tests/
   test_tasks.py
 run.py          development server entry point
+.bob/           IBM Bob project tooling (skills, modes, commands)
 ```
