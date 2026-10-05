@@ -97,5 +97,152 @@ class TaskApiTestCase(unittest.TestCase):
         self.assertIs(fetched["completed"], False)
 
 
+class TagFilterTestCase(unittest.TestCase):
+    """Tests for GET /tasks?tag=<tag> filtering."""
+
+    def setUp(self):
+        fd, self.db_path = tempfile.mkstemp(suffix=".sqlite")
+        os.close(fd)
+        self.app = create_app({"TESTING": True, "DATABASE": self.db_path})
+        self.client = self.app.test_client()
+
+    def tearDown(self):
+        os.remove(self.db_path)
+
+    def _create_user(self, name="Ada"):
+        r = self.client.post("/users", json={"name": name})
+        self.assertEqual(r.status_code, 201)
+        return r.get_json()
+
+    def _create_task(self, **fields):
+        r = self.client.post("/tasks", json={"title": "Task", **fields})
+        self.assertEqual(r.status_code, 201, r.get_json())
+        return r.get_json()
+
+    def _list_ids(self, **params):
+        r = self.client.get("/tasks", query_string=params)
+        self.assertEqual(r.status_code, 200, r.get_json())
+        return [t["id"] for t in r.get_json()["tasks"]]
+
+    # --- basic tag filter ---
+
+    def test_tag_filter_returns_matching_tasks(self):
+        t1 = self._create_task(tags=["backend", "database"])
+        t2 = self._create_task(tags=["backend"])
+        t3 = self._create_task(tags=["frontend"])
+
+        ids = self._list_ids(tag="backend")
+        self.assertIn(t1["id"], ids, ids)
+        self.assertIn(t2["id"], ids, ids)
+        self.assertNotIn(t3["id"], ids, ids)
+
+    def test_tag_filter_excludes_tasks_with_no_tags(self):
+        t_no_tags = self._create_task()
+        t_tagged = self._create_task(tags=["backend"])
+
+        ids = self._list_ids(tag="backend")
+        self.assertIn(t_tagged["id"], ids)
+        self.assertNotIn(t_no_tags["id"], ids)
+
+    def test_tag_filter_no_match_returns_empty(self):
+        self._create_task(tags=["frontend"])
+
+        ids = self._list_ids(tag="backend")
+        self.assertEqual(ids, [])
+
+    # --- exact membership, not substring ---
+
+    def test_tag_filter_is_not_substring_match(self):
+        """'end' must NOT match a task tagged 'backend'."""
+        t = self._create_task(tags=["backend"])
+
+        ids = self._list_ids(tag="end")
+        self.assertNotIn(t["id"], ids, "'end' matched 'backend' (substring false positive)")
+
+    def test_tag_filter_prefix_is_not_substring_match(self):
+        """'back' must NOT match a task tagged 'backend'."""
+        t = self._create_task(tags=["backend"])
+
+        ids = self._list_ids(tag="back")
+        self.assertNotIn(t["id"], ids, "'back' matched 'backend' (prefix false positive)")
+
+    def test_tag_filter_middle_tag_exact_match(self):
+        """A tag stored in the middle of the comma list is found exactly."""
+        t = self._create_task(tags=["alpha", "beta", "gamma"])
+
+        self.assertIn(t["id"], self._list_ids(tag="beta"))
+        self.assertNotIn(t["id"], self._list_ids(tag="bet"))
+        self.assertNotIn(t["id"], self._list_ids(tag="eta"))
+
+    # --- combined assignee + tag filter ---
+
+    def test_combined_filter_assignee_and_tag(self):
+        u1 = self._create_user("Alice")
+        u2 = self._create_user("Bob")
+
+        t1 = self._create_task(tags=["backend"], assignee_id=u1["id"])
+        t2 = self._create_task(tags=["backend"], assignee_id=u2["id"])
+        t3 = self._create_task(tags=["frontend"], assignee_id=u1["id"])
+
+        ids = self._list_ids(tag="backend", assignee_id=u1["id"])
+        self.assertIn(t1["id"], ids, ids)
+        self.assertNotIn(t2["id"], ids, ids)  # wrong assignee
+        self.assertNotIn(t3["id"], ids, ids)  # wrong tag
+
+    def test_combined_filter_no_match_returns_empty(self):
+        u = self._create_user()
+        self._create_task(tags=["backend"])          # no assignee
+        self._create_task(assignee_id=u["id"])       # no tag
+
+        ids = self._list_ids(tag="backend", assignee_id=u["id"])
+        self.assertEqual(ids, [])
+
+    # --- assignee-only filter still works ---
+
+    def test_assignee_only_filter_unchanged(self):
+        u = self._create_user()
+        t_assigned = self._create_task(assignee_id=u["id"])
+        t_unassigned = self._create_task()
+
+        ids = self._list_ids(assignee_id=u["id"])
+        self.assertIn(t_assigned["id"], ids)
+        self.assertNotIn(t_unassigned["id"], ids)
+
+    # --- edge cases: empty and invalid tag parameter ---
+
+    def test_empty_tag_param_returns_all_tasks(self):
+        """A blank tag= query param is treated as 'no filter'."""
+        t1 = self._create_task(tags=["backend"])
+        t2 = self._create_task(tags=["frontend"])
+
+        ids = self._list_ids(tag="")
+        self.assertIn(t1["id"], ids)
+        self.assertIn(t2["id"], ids)
+
+    def test_whitespace_only_tag_param_returns_all_tasks(self):
+        """A whitespace-only tag= param is treated as 'no filter'."""
+        t = self._create_task(tags=["backend"])
+
+        ids = self._list_ids(tag="   ")
+        self.assertIn(t["id"], ids)
+
+    def test_invalid_tag_param_returns_400(self):
+        """A tag value that violates the tag pattern returns 400."""
+        r = self.client.get("/tasks", query_string={"tag": "INVALID TAG!"})
+        self.assertEqual(r.status_code, 400, r.get_json())
+        self.assertIn("error", r.get_json())
+
+    def test_invalid_tag_with_spaces_returns_400(self):
+        r = self.client.get("/tasks", query_string={"tag": "has space"})
+        self.assertEqual(r.status_code, 400, r.get_json())
+
+    def test_tag_param_is_case_insensitive(self):
+        """tag=Backend (uppercase) normalises to 'backend' and matches."""
+        t = self._create_task(tags=["backend"])
+
+        ids = self._list_ids(tag="Backend")
+        self.assertIn(t["id"], ids)
+
+
 if __name__ == "__main__":
     unittest.main()

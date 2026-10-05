@@ -40,9 +40,9 @@ def create_task():
 
 @bp.get("/tasks")
 def list_tasks():
-    # NOTE: filtering by tag (?tag=<tag>) is planned but not implemented yet; see README.
     assignee_id = services.parse_id_param(request.args.get("assignee_id"), "assignee_id")
-    return jsonify({"tasks": services.list_tasks(assignee_id=assignee_id)})
+    tag = services.parse_tag_param(request.args.get("tag"))
+    return jsonify({"tasks": services.list_tasks(assignee_id=assignee_id, tag=tag)})
 
 
 @bp.get("/tasks/overdue")

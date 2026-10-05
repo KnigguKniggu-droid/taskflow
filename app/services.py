@@ -77,13 +77,24 @@ def get_task(task_id):
     return _task_to_dict(row)
 
 
-def list_tasks(assignee_id=None):
-    """Return all tasks, optionally only those assigned to ``assignee_id``."""
+def list_tasks(assignee_id=None, tag=None):
+    """Return all tasks, optionally filtered by ``assignee_id`` and/or ``tag``.
+
+    ``tag`` is matched as exact tag membership: a task must contain the tag as a
+    whole token in its comma-separated ``tags`` column, not as a substring of
+    another tag.
+    """
     conditions = []
     params = []
     if assignee_id is not None:
         conditions.append("assignee_id = ?")
         params.append(assignee_id)
+    if tag is not None:
+        # Wrap both sides with commas so every stored tag has a leading and
+        # trailing comma delimiter regardless of its position in the list.
+        # e.g. tags="backend,database" → ",backend,database," LIKE "%,backend,%"
+        conditions.append("(',' || tags || ',') LIKE ('%,' || ? || ',%')")
+        params.append(tag)
 
     query = SELECT_TASKS
     if conditions:
@@ -171,6 +182,26 @@ def parse_id_param(raw, field):
     if not (raw.isascii() and raw.isdigit()) or len(raw) > len(str(MAX_ID)):
         raise ValidationError(f"{field} must be a positive integer")
     return parse_id(int(raw), field)
+
+
+def parse_tag_param(raw):
+    """Validate an optional tag supplied as a query-string value.
+
+    Returns the normalised tag string, or ``None`` if the parameter was absent
+    or blank (blank → treat as "no filter").  Raises ``ValidationError`` for a
+    non-blank value that is not a valid tag.
+    """
+    if raw is None:
+        return None
+    tag = raw.strip().lower()
+    if not tag:
+        return None
+    if not TAG_PATTERN.fullmatch(tag):
+        raise ValidationError(
+            f"invalid tag {raw.strip()!r}: a tag starts with a letter or digit and uses "
+            "only a-z, 0-9, '-' or '_' (at most 32 characters)"
+        )
+    return tag
 
 
 def _user_exists(user_id):
