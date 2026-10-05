@@ -71,10 +71,10 @@ class TaskApiTestCase(unittest.TestCase):
 
     def test_completed_overdue_task_excluded(self):
         # A task that is past due but already completed must NOT appear in the
-        # overdue list.  This is the regression test for the NULL/0 bug: before
-        # the fix, *no* task (completed or not) appeared because newly created
-        # tasks had completed=NULL, which made `completed = 0` evaluate to NULL
-        # and silently exclude every row.
+        # overdue list.  This is a correctness guard: a completed task should
+        # never resurface in the overdue list regardless of its due date.
+        # (The regression guard for the NULL/0 schema bug is the separate
+        # test_new_task_completed_field_is_false and SchemaInitTestCase tests.)
         past = (date.today() - timedelta(days=1)).isoformat()
         task = self.create_task(due_date=past)
         self.client.post(f"/tasks/{task['id']}/complete")
@@ -302,9 +302,15 @@ class SchemaInitTestCase(unittest.TestCase):
     def test_init_db_backfills_null_completed_rows(self):
         """init_db must UPDATE pre-migration rows where completed IS NULL to 0.
 
-        This fails if the 'UPDATE tasks SET completed = 0 WHERE completed IS NULL'
-        backfill is removed from init_db, because legacy rows would remain NULL
-        and be silently excluded from the 'WHERE completed = 0' overdue query.
+        This verifies that the backfill statement
+        'UPDATE tasks SET completed = 0 WHERE completed IS NULL'
+        in init_db runs and zeroes any legacy NULL rows.
+
+        Note: SQLite's 'CREATE TABLE IF NOT EXISTS' does not ALTER an existing
+        table's column definition, so this test cannot verify that the
+        'NOT NULL DEFAULT 0' constraint was applied to the pre-existing column.
+        That invariant is checked for fresh databases in
+        test_schema_completed_default_is_zero_not_null.
         """
         # Step 1: Bootstrap with the old (nullable) schema using raw SQL so that
         # we can insert a row with completed = NULL without triggering the
