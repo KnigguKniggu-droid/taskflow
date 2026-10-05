@@ -60,8 +60,8 @@ def create_task(data):
     db = get_db()
     with db:
         cursor = db.execute(
-            "INSERT INTO tasks (title, description, tags, due_date, assignee_id, created_at)"
-            " VALUES (?, ?, ?, ?, ?, ?)",
+            "INSERT INTO tasks (title, description, tags, due_date, assignee_id, completed, created_at)"
+            " VALUES (?, ?, ?, ?, ?, 0, ?)",
             (title, description, tags, due_date, assignee_id, created_at),
         )
     return get_task(cursor.lastrowid)

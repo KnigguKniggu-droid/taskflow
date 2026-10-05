@@ -360,5 +360,96 @@ class SchemaInitTestCase(unittest.TestCase):
         self.assertEqual(row["completed"], 0, f"backfill wrong: completed={row['completed']!r}, expected 0")
 
 
+class OldSchemaRegressionTestCase(unittest.TestCase):
+    """Regression tests for databases created with the pre-migration schema.
+
+    The old schema had ``completed INTEGER`` (nullable, no DEFAULT).  SQLite's
+    ``CREATE TABLE IF NOT EXISTS`` does not ALTER an existing table, so ``init_db``
+    cannot apply the ``NOT NULL DEFAULT 0`` constraint to such a database.
+
+    The fix is to include ``completed = 0`` explicitly in the ``INSERT`` inside
+    ``create_task``, so that every new row always stores 0 regardless of whether
+    the column has a DEFAULT defined.
+    """
+
+    # The pre-migration schema — completed is nullable with no default.
+    _OLD_SCHEMA = (
+        "CREATE TABLE IF NOT EXISTS users "
+        "    (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL);"
+        "CREATE TABLE IF NOT EXISTS tasks ("
+        "    id INTEGER PRIMARY KEY AUTOINCREMENT,"
+        "    title TEXT NOT NULL,"
+        "    description TEXT NOT NULL DEFAULT '',"
+        "    tags TEXT NOT NULL DEFAULT '',"
+        "    due_date TEXT,"
+        "    assignee_id INTEGER REFERENCES users (id),"
+        "    completed INTEGER,"
+        "    created_at TEXT NOT NULL"
+        ");"
+    )
+
+    def setUp(self):
+        fd, self.db_path = tempfile.mkstemp(suffix=".sqlite")
+        os.close(fd)
+        # Seed the database with the OLD schema (completed nullable, no DEFAULT).
+        conn = connect(self.db_path)
+        try:
+            conn.executescript(self._OLD_SCHEMA)
+        finally:
+            conn.close()
+        # Now start the app against that old-schema database, exactly as a
+        # real upgrade would.  init_db runs CREATE TABLE IF NOT EXISTS (no-op
+        # for the existing table) and the backfill UPDATE (no rows yet → no-op).
+        self.app = create_app({"TESTING": True, "DATABASE": self.db_path})
+        self.client = self.app.test_client()
+
+    def tearDown(self):
+        os.remove(self.db_path)
+
+    def test_new_task_on_old_schema_stores_completed_zero_not_null(self):
+        """POST /tasks on an old-schema database must store completed=0, not NULL.
+
+        Fails if create_task relies solely on the column DEFAULT instead of
+        supplying 0 explicitly in the INSERT.  On the old schema the column has
+        no DEFAULT, so omitting completed from the INSERT stores NULL.
+        """
+        r = self.client.post("/tasks", json={"title": "t"})
+        self.assertEqual(r.status_code, 201, r.get_json())
+
+        conn = connect(self.db_path)
+        try:
+            row = conn.execute("SELECT completed FROM tasks").fetchone()
+        finally:
+            conn.close()
+
+        self.assertIsNotNone(
+            row["completed"],
+            "completed is NULL on old-schema database: INSERT must supply completed=0 explicitly",
+        )
+        self.assertEqual(row["completed"], 0, f"completed={row['completed']!r}, expected 0")
+
+    def test_new_task_on_old_schema_appears_in_overdue(self):
+        """A past-due task created on an old-schema database must appear in GET /tasks/overdue.
+
+        This is the end-to-end reproduction of the original defect: with a NULL
+        completed value, ``WHERE completed = 0`` evaluates to NULL (falsy) and
+        silently excludes every open task from the overdue list.
+        """
+        past = (date.today() - timedelta(days=1)).isoformat()
+        r = self.client.post("/tasks", json={"title": "overdue", "due_date": past})
+        self.assertEqual(r.status_code, 201, r.get_json())
+        task_id = r.get_json()["id"]
+
+        r2 = self.client.get("/tasks/overdue")
+        self.assertEqual(r2.status_code, 200, r2.get_json())
+        overdue_ids = [t["id"] for t in r2.get_json()["tasks"]]
+
+        self.assertIn(
+            task_id,
+            overdue_ids,
+            f"task {task_id} missing from /tasks/overdue — completed was likely stored as NULL",
+        )
+
+
 if __name__ == "__main__":
     unittest.main()
