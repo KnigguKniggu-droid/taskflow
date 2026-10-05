@@ -4,6 +4,7 @@ import unittest
 from datetime import date, timedelta
 
 from app import create_app
+from app.db import connect, init_db
 
 
 class TaskApiTestCase(unittest.TestCase):
@@ -258,6 +259,99 @@ class TagFilterTestCase(unittest.TestCase):
 
         ids = self._list_ids(tag="Backend")
         self.assertIn(t["id"], ids)
+
+
+class SchemaInitTestCase(unittest.TestCase):
+    """Direct tests of db.init_db — below the Flask/HTTP layer.
+
+    These guard the schema migration (completed NOT NULL DEFAULT 0) and the
+    NULL-backfill that repairs rows created before that migration.
+    """
+
+    def setUp(self):
+        fd, self.db_path = tempfile.mkstemp(suffix=".sqlite")
+        os.close(fd)
+
+    def tearDown(self):
+        os.remove(self.db_path)
+
+    def test_schema_completed_default_is_zero_not_null(self):
+        """INSERT without a completed value must store 0, not NULL.
+
+        This fails if the schema definition is reverted to 'completed INTEGER'
+        (nullable with no DEFAULT), because SQLite would then store NULL and
+        bool(None) at the API layer would silently coerce it to False, masking
+        the bug from all HTTP-level assertions.
+        """
+        init_db(self.db_path)
+        conn = connect(self.db_path)
+        try:
+            with conn:
+                conn.execute(
+                    "INSERT INTO tasks (title, created_at) VALUES (?, ?)",
+                    ("t", "2024-01-01T00:00:00+00:00"),
+                )
+            row = conn.execute("SELECT completed FROM tasks WHERE title = 't'").fetchone()
+        finally:
+            conn.close()
+
+        # Must be the integer 0 — not NULL, not False.
+        self.assertIsNotNone(row["completed"], "completed is NULL: DEFAULT 0 is missing from schema")
+        self.assertEqual(row["completed"], 0, f"completed={row['completed']!r}, expected 0")
+
+    def test_init_db_backfills_null_completed_rows(self):
+        """init_db must UPDATE pre-migration rows where completed IS NULL to 0.
+
+        This fails if the 'UPDATE tasks SET completed = 0 WHERE completed IS NULL'
+        backfill is removed from init_db, because legacy rows would remain NULL
+        and be silently excluded from the 'WHERE completed = 0' overdue query.
+        """
+        # Step 1: Bootstrap with the old (nullable) schema using raw SQL so that
+        # we can insert a row with completed = NULL without triggering the
+        # NOT NULL constraint of the current schema.
+        conn = connect(self.db_path)
+        try:
+            conn.executescript(
+                """
+                CREATE TABLE IF NOT EXISTS users (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    name TEXT NOT NULL
+                );
+                CREATE TABLE IF NOT EXISTS tasks (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    title TEXT NOT NULL,
+                    description TEXT NOT NULL DEFAULT '',
+                    tags TEXT NOT NULL DEFAULT '',
+                    due_date TEXT,
+                    assignee_id INTEGER REFERENCES users (id),
+                    completed INTEGER,
+                    created_at TEXT NOT NULL
+                );
+                """
+            )
+            with conn:
+                conn.execute(
+                    "INSERT INTO tasks (title, created_at) VALUES (?, ?)",
+                    ("legacy", "2024-01-01T00:00:00+00:00"),
+                )
+            # Confirm the row really is NULL before migration.
+            row = conn.execute("SELECT completed FROM tasks WHERE title = 'legacy'").fetchone()
+            self.assertIsNone(row["completed"], "pre-condition: legacy row should have NULL completed")
+        finally:
+            conn.close()
+
+        # Step 2: Run init_db (the migration + backfill).
+        init_db(self.db_path)
+
+        # Step 3: The legacy row must now have completed = 0, not NULL.
+        conn = connect(self.db_path)
+        try:
+            row = conn.execute("SELECT completed FROM tasks WHERE title = 'legacy'").fetchone()
+        finally:
+            conn.close()
+
+        self.assertIsNotNone(row["completed"], "backfill missing: completed is still NULL after init_db")
+        self.assertEqual(row["completed"], 0, f"backfill wrong: completed={row['completed']!r}, expected 0")
 
 
 if __name__ == "__main__":
