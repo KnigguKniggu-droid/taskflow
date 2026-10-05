@@ -152,4 +152,23 @@ tests/
   test_tasks.py
 run.py          development server entry point
 .bob/           IBM Bob project tooling (skills, modes, commands)
+bob_sessions/   transcripts of the IBM Bob session (see below)
 ```
+
+## Project provenance
+
+TaskFlow was created during the Building with IBM Bob hackathon as the unfamiliar codebase for
+Theme 1 (Explore, Fix, and Build). The starter, everything up to the `pre-bob-baseline` tag, was
+generated with Claude Code (Anthropic). It deliberately contained one seeded defect and an
+unimplemented tag-filter feature.
+
+Everything after that tag was done in an IBM Bob session. Bob explored the code, diagnosed and
+fixed the defect (including databases created before the fix), built the tag filter, wrote the
+regression tests, created the project tooling under `.bob/`, reviewed the change set with subagents
+and a custom reviewer mode, and updated this documentation. Every commit Bob made says so in its
+message ("Generated-by: IBM Bob").
+
+At the participant's direction, Claude Code operated that session through Bob Shell's Agent Client
+Protocol interface. It wrote the prompts, approved or denied tool calls by a fixed policy, and
+checked each stage independently. Its follow-up prompts reported observed failures, not fixes. The
+prompts, Bob's answers and the Bob task ids are in [`bob_sessions/`](bob_sessions/README.md).
