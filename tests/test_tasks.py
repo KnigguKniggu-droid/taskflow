@@ -174,6 +174,22 @@ class TagFilterTestCase(unittest.TestCase):
         self.assertNotIn(t["id"], self._list_ids(tag="bet"))
         self.assertNotIn(t["id"], self._list_ids(tag="eta"))
 
+    def test_underscore_in_tag_is_not_like_wildcard(self):
+        """tag=a_b must NOT match a task whose only tag is 'axb'.
+
+        SQLite LIKE treats '_' as a single-character wildcard; without escaping,
+        ?tag=a_b would match 'axb', 'a-b', 'a0b', etc.  This is the regression
+        test for the ESCAPE fix.
+        """
+        t_axb = self._create_task(tags=["axb"])   # should NOT match a_b
+        t_a_b = self._create_task(tags=["a-b"])   # should NOT match a_b either
+        t_exact = self._create_task(tags=["a_b"]) # should match
+
+        ids = self._list_ids(tag="a_b")
+        self.assertNotIn(t_axb["id"], ids, "a_b wildcard matched axb (underscore not escaped)")
+        self.assertNotIn(t_a_b["id"], ids, "a_b wildcard matched a-b (underscore not escaped)")
+        self.assertIn(t_exact["id"], ids, "a_b did not match a_b (exact tag missing)")
+
     # --- combined assignee + tag filter ---
 
     def test_combined_filter_assignee_and_tag(self):

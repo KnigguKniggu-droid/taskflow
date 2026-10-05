@@ -93,8 +93,14 @@ def list_tasks(assignee_id=None, tag=None):
         # Wrap both sides with commas so every stored tag has a leading and
         # trailing comma delimiter regardless of its position in the list.
         # e.g. tags="backend,database" → ",backend,database," LIKE "%,backend,%"
-        conditions.append("(',' || tags || ',') LIKE ('%,' || ? || ',%')")
-        params.append(tag)
+        #
+        # SQLite LIKE treats '_' as a single-character wildcard and '%' as a
+        # multi-character wildcard.  Tags may legally contain '_' (TAG_PATTERN
+        # allows it), so we must escape both metacharacters in the tag value
+        # before embedding it in the pattern.  We use '\' as the escape char.
+        escaped_tag = tag.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+        conditions.append("(',' || tags || ',') LIKE ('%,' || ? || ',%') ESCAPE '\\'")
+        params.append(escaped_tag)
 
     query = SELECT_TASKS
     if conditions:
