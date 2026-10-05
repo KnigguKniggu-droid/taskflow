@@ -84,10 +84,11 @@ List endpoints return `{"tasks": [...]}`, ordered by id (`/tasks/overdue` is ord
 
 - Matching is exact — `?tag=back` does **not** match a task tagged `backend`.
 - The value is normalised to lowercase before matching, so `?tag=Backend` and
-  `?tag=backend` return the same results.
+  `?tag=backend` return the same results — uppercase input is accepted and treated
+  as its lowercase equivalent.
 - A blank value (`?tag=` or `?tag=   `) is treated as "no filter" and returns all tasks.
-- An invalid value (e.g. uppercase letters, spaces, or characters outside `[a-z0-9_-]`)
-  returns `400 {"error": "..."}`.
+- A value that is invalid after lowercasing (e.g. spaces, `@`, or other characters
+  outside `[a-z0-9_-]`, or longer than 32 characters) returns `400 {"error": "..."}`.
 
 Both parameters may be combined: `?tag=backend&assignee_id=1` returns tasks that have
 the tag `backend` **and** are assigned to user 1.
