@@ -351,6 +351,42 @@ button[type="submit"]:hover {
   outline-offset: 2px;
 }
 
+/* --- Detail actions row ------------------------------------------- */
+.detail-actions {
+  display: flex;
+  flex-direction: row;
+  gap: var(--space-sm);
+  align-items: center;
+  margin-top: var(--space-md);
+}
+
+/* --- Edit button (secondary/outline) ------------------------------ */
+#btn-edit-task {
+  background: transparent;
+  border: 1px solid var(--color-accent);
+  color: var(--color-accent);
+  font-weight: 600;
+}
+
+#btn-edit-task:hover {
+  background: var(--color-accent);
+  color: #fff;
+  filter: none;
+}
+
+/* --- Detail edit form --------------------------------------------- */
+#detail-edit-form {
+  margin-top: var(--space-md);
+  padding-top: var(--space-md);
+  border-top: 1px solid var(--color-border);
+}
+
+#detail-edit-form form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+}
+
 /* --- Responsive: small screens ------------------------------------ */
 @media (max-width: 600px) {
   #stats {
@@ -365,6 +401,13 @@ button[type="submit"]:hover {
   #filter-form select,
   #filter-form input[type="text"] {
     width: 100%;
+  }
+
+  dialog {
+    max-width: 100%;
+    width: 100%;
+    margin: 0;
+    border-radius: 0;
   }
 }
 
@@ -381,6 +424,21 @@ button[type="submit"]:hover {
   #error-banner {
     background: #3b1111;
   }
+
+  /* Edit form and detail inputs inherit via CSS custom properties already set
+     on :root; explicit overrides only needed where background is hard-coded. */
+  input[type="text"],
+  input[type="date"],
+  select,
+  textarea {
+    background: var(--color-surface);
+    color: var(--color-text);
+    border-color: var(--color-border);
+  }
+
+  #detail-edit-form {
+    border-top-color: var(--color-border);
+  }
 }
 
 /* --- Reduced motion ----------------------------------------------- */
@@ -388,7 +446,7 @@ button[type="submit"]:hover {
   *,
   *::before,
   *::after {
-    animation: none;
-    transition: none;
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
   }
 }

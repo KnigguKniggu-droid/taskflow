@@ -8,15 +8,23 @@ let currentFilter = {};
 let currentDetailTaskId = null;   // id of the task currently shown in the detail dialog
 
 async function loadUsers() {
-  const data = await api.get('/users');
-  usersMap = new Map(data.users.map(u => [u.id, u.name]));
-  render.populateUserSelect(data.users, document.getElementById('filter-assignee'), '— All —');
-  render.populateUserSelect(data.users, document.getElementById('ct-assignee'), 'Unassigned');
+  try {
+    const data = await api.get('/users');
+    usersMap = new Map(data.users.map(u => [u.id, u.name]));
+    render.populateUserSelect(data.users, document.getElementById('filter-assignee'), '— All —');
+    render.populateUserSelect(data.users, document.getElementById('ct-assignee'), 'Unassigned');
+  } catch (err) {
+    showGlobalError(err.message);
+  }
 }
 
 async function loadStats() {
-  const data = await api.get('/tasks/stats');
-  render.renderStatCards(data);
+  try {
+    const data = await api.get('/tasks/stats');
+    render.renderStatCards(data);
+  } catch (err) {
+    showGlobalError(err.message);
+  }
 }
 
 async function loadTasks(params) {
@@ -47,6 +55,21 @@ async function loadTasks(params) {
         });
         taskList.appendChild(li);
       }
+    }
+
+    // Update document.title to reflect active filter
+    const assigneeId = params.assignee_id;
+    const tag = params.tag;
+    if (assigneeId && tag) {
+      const name = usersMap.get(Number(assigneeId)) || assigneeId;
+      document.title = `TaskFlow — assignee: ${name}, tag: ${tag}`;
+    } else if (assigneeId) {
+      const name = usersMap.get(Number(assigneeId)) || assigneeId;
+      document.title = `TaskFlow — assignee: ${name}`;
+    } else if (tag) {
+      document.title = `TaskFlow — tag: ${tag}`;
+    } else {
+      document.title = 'TaskFlow';
     }
   } catch (err) {
     taskList.classList.remove('is-loading');
@@ -196,13 +219,17 @@ document.addEventListener('DOMContentLoaded', () => {
     currentFilter = {};
     if (assigneeId) currentFilter.assignee_id = assigneeId;
     if (tag) currentFilter.tag = tag;
-    loadTasks(currentFilter).then(() => loadStats());
+    loadTasks(currentFilter)
+      .then(() => loadStats())
+      .catch(err => showGlobalError(err.message));
   });
 
   document.getElementById('btn-clear-filter').addEventListener('click', () => {
     document.getElementById('filter-form').reset();
     currentFilter = {};
-    loadTasks({}).then(() => loadStats());
+    loadTasks({})
+      .then(() => loadStats())
+      .catch(err => showGlobalError(err.message));
   });
 
   // Global error banner
@@ -257,7 +284,9 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 
   // Initial load
-  loadUsers().then(() => Promise.all([loadStats(), loadTasks({})]));
+  loadUsers()
+    .then(() => Promise.all([loadStats(), loadTasks({})]))
+    .catch(err => showGlobalError(err.message));
 });
 
 function showGlobalError(msg) {
