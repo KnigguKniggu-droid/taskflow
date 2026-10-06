@@ -641,6 +641,17 @@ class UpdateTaskTestCase(unittest.TestCase):
         self.assertEqual(r.status_code, 404, r.get_json())
         self.assertIn("error", r.get_json())
 
+    def test_oversized_id_returns_404_not_500(self):
+        """PATCH with a task_id larger than SQLite INTEGER max must return 404.
+
+        99999999999999999999999 exceeds MAX_ID (2**63-1) so no such task can
+        exist; update_task must raise NotFoundError before passing the value to
+        SQLite (which would raise OverflowError and produce a 500).
+        """
+        r = self.client.patch("/tasks/99999999999999999999999", json={"title": "x"})
+        self.assertEqual(r.status_code, 404, r.get_json())
+        self.assertIn("error", r.get_json())
+
     def test_unknown_field_rejected(self):
         task = self.create_task()
         r = self.patch_task(task["id"], {"completed": True})

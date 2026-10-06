@@ -147,6 +147,9 @@ def update_task(task_id, data):
     ``completed`` and ``created_at`` are not accepted (rejected by
     _reject_unknown_fields).
     """
+    if not 0 < task_id <= MAX_ID:
+        raise NotFoundError(f"task {task_id} not found")
+
     _reject_unknown_fields(data, TASK_FIELDS)
 
     if not data:
