@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>TaskFlow</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <header>
+    <h1>TaskFlow</h1>
+  </header>
+
+  <main>
+    <form id="filter-form">
+      <label for="filter-assignee">Assignee</label>
+      <select id="filter-assignee">
+        <option value="">— All —</option>
+      </select>
+
+      <label for="filter-tag">Tag (exact)</label>
+      <input id="filter-tag" type="text" placeholder="e.g. python">
+
+      <button type="submit">Apply</button>
+      <button type="button" id="btn-clear-filter">Clear</button>
+    </form>
+
+    <section id="stats" aria-label="Task summary">
+      <dl>
+        <dt>Total</dt>
+        <dd id="stat-total" role="status">—</dd>
+      </dl>
+      <dl>
+        <dt>Open</dt>
+        <dd id="stat-open" role="status">—</dd>
+      </dl>
+      <dl>
+        <dt>Overdue</dt>
+        <dd id="stat-overdue" role="status">—</dd>
+      </dl>
+      <dl>
+        <dt>Completed</dt>
+        <dd id="stat-completed" role="status">—</dd>
+      </dl>
+    </section>
+
+    <section aria-label="Task list">
+      <ul id="task-list" aria-live="polite" aria-label="Tasks"></ul>
+      <p id="task-list-empty" hidden>No tasks yet.</p>
+      <p id="task-list-error" role="alert" hidden></p>
+    </section>
+
+    <button id="btn-new-task" type="button">+ New Task</button>
+  </main>
+
+  <dialog id="modal-create-task" aria-modal="true" aria-labelledby="modal-create-title">
+    <h2 id="modal-create-title">New Task</h2>
+    <form id="form-create-task" method="dialog">
+      <label for="ct-title">Title *</label>
+      <input id="ct-title" name="title" type="text" required>
+
+      <label for="ct-desc">Description</label>
+      <textarea id="ct-desc" name="description"></textarea>
+
+      <label for="ct-tags">Tags</label>
+      <input id="ct-tags" name="tags" type="text" placeholder="comma-separated, e.g. python,flask">
+
+      <label for="ct-due">Due Date</label>
+      <input id="ct-due" name="due_date" type="date">
+
+      <label for="ct-assignee">Assignee</label>
+      <select id="ct-assignee" name="assignee_id">
+        <option value="">Unassigned</option>
+      </select>
+
+      <p id="create-error" role="alert" hidden></p>
+
+      <div class="dialog-buttons">
+        <button type="submit">Create</button>
+        <button type="button" id="btn-cancel-create">Cancel</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="modal-task-detail" aria-modal="true" aria-labelledby="detail-title">
+    <h2 id="detail-title"></h2>
+    <div id="detail-body"></div>
+    <p id="detail-error" role="alert" hidden></p>
+    <button type="button" id="btn-close-detail">Close</button>
+  </dialog>
+
+  <div id="error-banner" role="alert" aria-live="assertive" hidden>
+    <span id="error-banner-msg"></span>
+    <button type="button" id="btn-dismiss-error">×</button>
+  </div>
+
+  <script type="module" src="/static/app.js"></script>
+</body>
+</html>

@@ -3,13 +3,18 @@
 import json
 from datetime import date
 
-from flask import Blueprint, jsonify, request
+from flask import Blueprint, current_app, jsonify, request
 from werkzeug.exceptions import HTTPException
 from werkzeug.routing import IntegerConverter
 
 from . import services
 
 bp = Blueprint("api", __name__)
+
+
+@bp.route("/")
+def index():
+    return current_app.send_static_file("index.html")
 
 
 class IdConverter(IntegerConverter):
