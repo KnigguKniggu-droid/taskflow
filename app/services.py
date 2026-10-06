@@ -17,10 +17,20 @@ MAX_TAGS = 10
 TAG_PATTERN = re.compile(r"[a-z0-9][a-z0-9_-]{0,31}")
 DUE_DATE_PATTERN = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}")
 USER_FIELDS = frozenset({"name"})
-TASK_FIELDS = frozenset({"title", "description", "tags", "due_date", "assignee_id"})
+TASK_FIELDS = frozenset({"title", "description", "tags", "due_date", "assignee_id", "status"})
+
+VALID_STATUSES = frozenset({"open", "in_progress", "blocked", "completed"})
+
+# Valid transitions: {from_status: frozenset of allowed to_statuses}
+VALID_TRANSITIONS = {
+    "open":        frozenset({"in_progress", "blocked", "completed"}),
+    "in_progress": frozenset({"open", "blocked", "completed"}),
+    "blocked":     frozenset({"open", "in_progress", "completed"}),
+    "completed":   frozenset({"open"}),
+}
 
 SELECT_TASKS = (
-    "SELECT id, title, description, tags, due_date, assignee_id, completed, created_at"
+    "SELECT id, title, description, tags, due_date, assignee_id, completed, status, created_at"
     " FROM tasks"
 )
 
@@ -31,6 +41,10 @@ class ValidationError(Exception):
 
 class NotFoundError(Exception):
     """The requested resource does not exist."""
+
+
+class TransitionError(Exception):
+    """The requested status transition is not permitted."""
 
 
 def create_user(data):
@@ -50,26 +64,40 @@ def list_users():
 
 
 def get_task_stats(today):
-    """Return task counts: total, open, completed, overdue.
+    """Return task counts: total, open, in_progress, blocked, completed, overdue.
 
     ``today`` is a ``datetime.date`` used to determine the overdue cutoff.
-    A task is overdue when it is open, has a due_date, and that date is before
-    ``today``.
+    A task is overdue when it has a non-completed status, has a due_date, and
+    that date is before ``today``.
+
+    The ``open`` key retains its historical meaning (tasks that are not
+    completed) so existing clients that only read ``open`` and ``completed``
+    are unaffected.  New clients can read the per-status breakdown.
     """
     row = get_db().execute(
         "SELECT"
         " COUNT(*) AS total,"
-        " SUM(CASE WHEN completed = 0 THEN 1 ELSE 0 END) AS open,"
-        " SUM(CASE WHEN completed = 1 THEN 1 ELSE 0 END) AS completed,"
-        " SUM(CASE WHEN completed = 0 AND due_date IS NOT NULL AND due_date < ? THEN 1 ELSE 0 END) AS overdue"
+        " SUM(CASE WHEN status = 'open'        THEN 1 ELSE 0 END) AS cnt_open,"
+        " SUM(CASE WHEN status = 'in_progress' THEN 1 ELSE 0 END) AS cnt_in_progress,"
+        " SUM(CASE WHEN status = 'blocked'     THEN 1 ELSE 0 END) AS cnt_blocked,"
+        " SUM(CASE WHEN status = 'completed'   THEN 1 ELSE 0 END) AS cnt_completed,"
+        " SUM(CASE WHEN status != 'completed' AND due_date IS NOT NULL AND due_date < ?"
+        "          THEN 1 ELSE 0 END) AS overdue"
         " FROM tasks",
         (today.isoformat(),),
     ).fetchone()
+    cnt_open        = row["cnt_open"]        or 0
+    cnt_in_progress = row["cnt_in_progress"] or 0
+    cnt_blocked     = row["cnt_blocked"]     or 0
+    cnt_completed   = row["cnt_completed"]   or 0
     return {
-        "total": row["total"] or 0,
-        "open": row["open"] or 0,
-        "completed": row["completed"] or 0,
-        "overdue": row["overdue"] or 0,
+        "total":       row["total"] or 0,
+        # "open" = all non-completed (backward-compatible)
+        "open":        cnt_open + cnt_in_progress + cnt_blocked,
+        "in_progress": cnt_in_progress,
+        "blocked":     cnt_blocked,
+        "completed":   cnt_completed,
+        "overdue":     row["overdue"] or 0,
     }
 
 
@@ -90,11 +118,16 @@ def create_task(data):
     db = get_db()
     with db:
         cursor = db.execute(
-            "INSERT INTO tasks (title, description, tags, due_date, assignee_id, completed, created_at)"
-            " VALUES (?, ?, ?, ?, ?, 0, ?)",
+            "INSERT INTO tasks (title, description, tags, due_date, assignee_id, completed, status, created_at)"
+            " VALUES (?, ?, ?, ?, ?, 0, 'open', ?)",
             (title, description, tags, due_date, assignee_id, created_at),
         )
-    return get_task(cursor.lastrowid)
+        task_id = cursor.lastrowid
+        db.execute(
+            "INSERT INTO task_activity (task_id, event, detail, created_at) VALUES (?, ?, ?, ?)",
+            (task_id, "created", "", created_at),
+        )
+    return get_task(task_id)
 
 
 def get_task(task_id):
@@ -156,47 +189,112 @@ def update_task(task_id, data):
         # No-op: validate the task exists then return unchanged.
         return get_task(task_id)
 
+    db = get_db()
+
+    # Fetch the current task to validate transitions and build activity detail.
+    current_row = db.execute(SELECT_TASKS + " WHERE id = ?", (task_id,)).fetchone()
+    if current_row is None:
+        raise NotFoundError(f"task {task_id} not found")
+    current = _task_to_dict(current_row)
+
     columns = []
     values = []
+    activity_rows = []  # list of (event, detail) tuples
+    now = datetime.now(timezone.utc).isoformat(timespec="seconds")
+
+    # --- status ---
+    if "status" in data:
+        new_status = data["status"]
+        if not isinstance(new_status, str) or new_status not in VALID_STATUSES:
+            raise ValidationError(
+                f"status must be one of: {', '.join(sorted(VALID_STATUSES))}"
+            )
+        old_status = current["status"]
+        if new_status != old_status:
+            allowed = VALID_TRANSITIONS.get(old_status, frozenset())
+            if new_status not in allowed:
+                raise TransitionError(
+                    f"invalid status transition: {old_status} → {new_status}"
+                )
+            columns.append("status = ?")
+            values.append(new_status)
+            # Keep completed in sync
+            columns.append("completed = ?")
+            values.append(1 if new_status == "completed" else 0)
+            activity_rows.append(("status_changed", f"{old_status} → {new_status}"))
+
+    # --- details (title, description, tags) ---
+    details_changed = []
 
     if "title" in data:
-        columns.append("title = ?")
-        values.append(_required_text(data, "title", MAX_TITLE_LENGTH))
+        new_val = _required_text(data, "title", MAX_TITLE_LENGTH)
+        if new_val != current["title"]:
+            columns.append("title = ?")
+            values.append(new_val)
+            details_changed.append("title")
 
     if "description" in data:
-        columns.append("description = ?")
-        values.append(_optional_text(data, "description", MAX_DESCRIPTION_LENGTH))
+        new_val = _optional_text(data, "description", MAX_DESCRIPTION_LENGTH)
+        if new_val != current["description"]:
+            columns.append("description = ?")
+            values.append(new_val)
+            details_changed.append("description")
 
     if "tags" in data:
-        columns.append("tags = ?")
-        values.append(normalize_tags(data["tags"]))
+        new_val = normalize_tags(data["tags"])
+        if new_val != current_row["tags"]:
+            columns.append("tags = ?")
+            values.append(new_val)
+            details_changed.append("tags")
 
+    if details_changed:
+        activity_rows.append(("details_edited", ", ".join(details_changed) + " updated"))
+
+    # --- due_date ---
     if "due_date" in data:
         if data["due_date"] is None:
-            # Explicit null → clear the due date.
-            columns.append("due_date = ?")
-            values.append(None)
+            new_val = None
         else:
+            new_val = parse_due_date(data["due_date"])
+        if new_val != current["due_date"]:
             columns.append("due_date = ?")
-            values.append(parse_due_date(data["due_date"]))
+            values.append(new_val)
+            if new_val is None:
+                activity_rows.append(("due_date_changed", "due date cleared"))
+            else:
+                activity_rows.append(("due_date_changed", f"due date set to {new_val}"))
 
+    # --- assignee_id ---
     if "assignee_id" in data:
         assignee_id = data["assignee_id"]
         if assignee_id is not None:
             assignee_id = parse_id(assignee_id, "assignee_id")
             if not _user_exists(assignee_id):
                 raise ValidationError("assignee_id does not match an existing user")
-        columns.append("assignee_id = ?")
-        values.append(assignee_id)
+        if assignee_id != current["assignee_id"]:
+            columns.append("assignee_id = ?")
+            values.append(assignee_id)
+            if assignee_id is None:
+                activity_rows.append(("reassigned", "assignee cleared"))
+            else:
+                activity_rows.append(("reassigned", f"assigned to user {assignee_id}"))
+
+    if not columns:
+        # All supplied values were identical to existing — still a no-op.
+        return get_task(task_id)
 
     values.append(task_id)
     sql = "UPDATE tasks SET " + ", ".join(columns) + " WHERE id = ?"
 
-    db = get_db()
     with db:
         cursor = db.execute(sql, values)
-    if cursor.rowcount == 0:
-        raise NotFoundError(f"task {task_id} not found")
+        if cursor.rowcount == 0:
+            raise NotFoundError(f"task {task_id} not found")
+        for event, detail in activity_rows:
+            db.execute(
+                "INSERT INTO task_activity (task_id, event, detail, created_at) VALUES (?, ?, ?, ?)",
+                (task_id, event, detail, now),
+            )
     return get_task(task_id)
 
 
@@ -205,17 +303,53 @@ def complete_task(task_id):
     if not 0 < task_id <= MAX_ID:
         raise NotFoundError(f"task {task_id} not found")
     db = get_db()
-    with db:
-        cursor = db.execute("UPDATE tasks SET completed = 1 WHERE id = ?", (task_id,))
-    if cursor.rowcount == 0:
+
+    current_row = db.execute(
+        "SELECT status FROM tasks WHERE id = ?", (task_id,)
+    ).fetchone()
+    if current_row is None:
         raise NotFoundError(f"task {task_id} not found")
+
+    old_status = current_row["status"]
+    now = datetime.now(timezone.utc).isoformat(timespec="seconds")
+
+    with db:
+        cursor = db.execute(
+            "UPDATE tasks SET completed = 1, status = 'completed' WHERE id = ?",
+            (task_id,),
+        )
+        if cursor.rowcount == 0:
+            raise NotFoundError(f"task {task_id} not found")
+        # Write activity only when the status actually changed.
+        if old_status != "completed":
+            db.execute(
+                "INSERT INTO task_activity (task_id, event, detail, created_at) VALUES (?, ?, ?, ?)",
+                (task_id, "status_changed", f"{old_status} → completed", now),
+            )
     return get_task(task_id)
+
+
+def get_task_activity(task_id):
+    """Return activity rows for a task (oldest first), or raise NotFoundError."""
+    if not 0 < task_id <= MAX_ID:
+        raise NotFoundError(f"task {task_id} not found")
+    db = get_db()
+    # Verify the task exists
+    row = db.execute("SELECT id FROM tasks WHERE id = ?", (task_id,)).fetchone()
+    if row is None:
+        raise NotFoundError(f"task {task_id} not found")
+    rows = db.execute(
+        "SELECT id, event, detail, created_at FROM task_activity"
+        " WHERE task_id = ? ORDER BY id ASC",
+        (task_id,),
+    ).fetchall()
+    return [dict(r) for r in rows]
 
 
 def list_overdue_tasks(today):
     """Return open tasks whose due date is before ``today`` (a ``datetime.date``)."""
     rows = get_db().execute(
-        SELECT_TASKS + " WHERE due_date < ? AND completed = 0 ORDER BY due_date, id",
+        SELECT_TASKS + " WHERE due_date < ? AND status != 'completed' ORDER BY due_date, id",
         (today.isoformat(),),
     )
     return [_task_to_dict(row) for row in rows]
@@ -341,6 +475,7 @@ def _checked_text(value, field, max_length):
 
 
 def _task_to_dict(row):
+    status = row["status"] if "status" in row.keys() else "open"
     return {
         "id": row["id"],
         "title": row["title"],
@@ -348,6 +483,7 @@ def _task_to_dict(row):
         "tags": row["tags"].split(",") if row["tags"] else [],
         "due_date": row["due_date"],
         "assignee_id": row["assignee_id"],
-        "completed": bool(row["completed"]),
+        "status": status,
+        "completed": status == "completed",
         "created_at": row["created_at"],
     }

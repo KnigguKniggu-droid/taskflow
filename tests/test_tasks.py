@@ -717,10 +717,14 @@ class StatsEndpointTestCase(unittest.TestCase):
         return response.get_json()
 
     def test_zero_state(self):
-        self.assertEqual(
-            self.get_stats(),
-            {"total": 0, "open": 0, "completed": 0, "overdue": 0},
-        )
+        stats = self.get_stats()
+        # Core keys must be present and zero — new per-status keys are also asserted.
+        self.assertEqual(stats["total"],       0, stats)
+        self.assertEqual(stats["open"],        0, stats)
+        self.assertEqual(stats["completed"],   0, stats)
+        self.assertEqual(stats["overdue"],     0, stats)
+        self.assertEqual(stats["in_progress"], 0, stats)
+        self.assertEqual(stats["blocked"],     0, stats)
 
     def test_counts_after_creates(self):
         self.create_task()
