@@ -233,8 +233,11 @@ async function submitUpdateTask(taskId) {
   body.tags        = document.getElementById('et-tags').value.trim();
   const dueVal     = document.getElementById('et-due').value;
   body.due_date    = dueVal === '' ? null : dueVal;
+  // Always include assignee_id so that selecting "Unassigned" (value="")
+  // sends null and clears the field.  Omitting the key would leave an
+  // existing assignee unchanged — the user would have no way to unset it.
   const assigneeVal = document.getElementById('et-assignee').value;
-  if (assigneeVal !== '') body.assignee_id = Number(assigneeVal);
+  body.assignee_id = assigneeVal !== '' ? Number(assigneeVal) : null;
 
   const errorEl   = document.getElementById('edit-error');
   const submitBtn = document.querySelector('#form-edit-task button[type="submit"]');
@@ -271,6 +274,9 @@ async function submitUpdateTask(taskId) {
   } catch (err) {
     errorEl.textContent = err.message;
     errorEl.hidden = false;
+    // Restore the Close button so the user can dismiss the dialog even after
+    // a save failure.  (It was hidden when Edit mode was entered.)
+    document.getElementById('btn-close-detail').hidden = false;
   } finally {
     submitBtn.disabled = false;
   }

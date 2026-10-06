@@ -179,6 +179,11 @@ def update_task(task_id, data):
     explicitly clears the due date; omitting the key leaves it unchanged.
     ``completed`` and ``created_at`` are not accepted (rejected by
     _reject_unknown_fields).
+
+    The current task row is re-fetched *inside* the write transaction so that
+    concurrent PATCH requests for the same task cannot both read the same
+    pre-transition status, both pass the transition guard, and then both
+    commit conflicting updates (TOCTOU).
     """
     if not 0 < task_id <= MAX_ID:
         raise NotFoundError(f"task {task_id} not found")
@@ -189,105 +194,122 @@ def update_task(task_id, data):
         # No-op: validate the task exists then return unchanged.
         return get_task(task_id)
 
-    db = get_db()
-
-    # Fetch the current task to validate transitions and build activity detail.
-    current_row = db.execute(SELECT_TASKS + " WHERE id = ?", (task_id,)).fetchone()
-    if current_row is None:
-        raise NotFoundError(f"task {task_id} not found")
-    current = _task_to_dict(current_row)
-
-    columns = []
-    values = []
-    activity_rows = []  # list of (event, detail) tuples
-    now = datetime.now(timezone.utc).isoformat(timespec="seconds")
-
-    # --- status ---
+    # Validate inputs that don't require the current row (cheap, stateless).
+    # Status format is checked here; transition validity is checked inside txn.
     if "status" in data:
         new_status = data["status"]
         if not isinstance(new_status, str) or new_status not in VALID_STATUSES:
             raise ValidationError(
                 f"status must be one of: {', '.join(sorted(VALID_STATUSES))}"
             )
-        old_status = current["status"]
-        if new_status != old_status:
-            allowed = VALID_TRANSITIONS.get(old_status, frozenset())
-            if new_status not in allowed:
-                raise TransitionError(
-                    f"invalid status transition: {old_status} → {new_status}"
-                )
-            columns.append("status = ?")
-            values.append(new_status)
-            # Keep completed in sync
-            columns.append("completed = ?")
-            values.append(1 if new_status == "completed" else 0)
-            activity_rows.append(("status_changed", f"{old_status} → {new_status}"))
-
-    # --- details (title, description, tags) ---
-    details_changed = []
-
     if "title" in data:
-        new_val = _required_text(data, "title", MAX_TITLE_LENGTH)
-        if new_val != current["title"]:
-            columns.append("title = ?")
-            values.append(new_val)
-            details_changed.append("title")
-
+        _required_text(data, "title", MAX_TITLE_LENGTH)
     if "description" in data:
-        new_val = _optional_text(data, "description", MAX_DESCRIPTION_LENGTH)
-        if new_val != current["description"]:
-            columns.append("description = ?")
-            values.append(new_val)
-            details_changed.append("description")
-
+        _optional_text(data, "description", MAX_DESCRIPTION_LENGTH)
     if "tags" in data:
-        new_val = normalize_tags(data["tags"])
-        if new_val != current_row["tags"]:
-            columns.append("tags = ?")
-            values.append(new_val)
-            details_changed.append("tags")
+        normalize_tags(data["tags"])
+    if "due_date" in data and data["due_date"] is not None:
+        parse_due_date(data["due_date"])
+    if "assignee_id" in data and data["assignee_id"] is not None:
+        assignee_id_val = parse_id(data["assignee_id"], "assignee_id")
+        if not _user_exists(assignee_id_val):
+            raise ValidationError("assignee_id does not match an existing user")
 
-    if details_changed:
-        activity_rows.append(("details_edited", ", ".join(details_changed) + " updated"))
-
-    # --- due_date ---
-    if "due_date" in data:
-        if data["due_date"] is None:
-            new_val = None
-        else:
-            new_val = parse_due_date(data["due_date"])
-        if new_val != current["due_date"]:
-            columns.append("due_date = ?")
-            values.append(new_val)
-            if new_val is None:
-                activity_rows.append(("due_date_changed", "due date cleared"))
-            else:
-                activity_rows.append(("due_date_changed", f"due date set to {new_val}"))
-
-    # --- assignee_id ---
-    if "assignee_id" in data:
-        assignee_id = data["assignee_id"]
-        if assignee_id is not None:
-            assignee_id = parse_id(assignee_id, "assignee_id")
-            if not _user_exists(assignee_id):
-                raise ValidationError("assignee_id does not match an existing user")
-        if assignee_id != current["assignee_id"]:
-            columns.append("assignee_id = ?")
-            values.append(assignee_id)
-            if assignee_id is None:
-                activity_rows.append(("reassigned", "assignee cleared"))
-            else:
-                user_name = _get_user_name(assignee_id)
-                activity_rows.append(("reassigned", f"assigned to {user_name}"))
-
-    if not columns:
-        # All supplied values were identical to existing — still a no-op.
-        return get_task(task_id)
-
-    values.append(task_id)
-    sql = "UPDATE tasks SET " + ", ".join(columns) + " WHERE id = ?"
+    db = get_db()
+    now = datetime.now(timezone.utc).isoformat(timespec="seconds")
 
     with db:
+        # Re-fetch the current task inside the transaction.  This prevents a
+        # TOCTOU race where two concurrent PATCHes both read "open", both pass
+        # the transition guard, and both write conflicting status updates.
+        current_row = db.execute(SELECT_TASKS + " WHERE id = ?", (task_id,)).fetchone()
+        if current_row is None:
+            raise NotFoundError(f"task {task_id} not found")
+        current = _task_to_dict(current_row)
+
+        columns = []
+        values = []
+        activity_rows = []  # list of (event, detail) tuples
+
+        # --- status ---
+        if "status" in data:
+            new_status = data["status"]
+            old_status = current["status"]
+            if new_status != old_status:
+                allowed = VALID_TRANSITIONS.get(old_status, frozenset())
+                if new_status not in allowed:
+                    raise TransitionError(
+                        f"invalid status transition: {old_status} → {new_status}"
+                    )
+                columns.append("status = ?")
+                values.append(new_status)
+                # Keep completed in sync
+                columns.append("completed = ?")
+                values.append(1 if new_status == "completed" else 0)
+                activity_rows.append(("status_changed", f"{old_status} → {new_status}"))
+
+        # --- details (title, description, tags) ---
+        details_changed = []
+
+        if "title" in data:
+            new_val = _required_text(data, "title", MAX_TITLE_LENGTH)
+            if new_val != current["title"]:
+                columns.append("title = ?")
+                values.append(new_val)
+                details_changed.append("title")
+
+        if "description" in data:
+            new_val = _optional_text(data, "description", MAX_DESCRIPTION_LENGTH)
+            if new_val != current["description"]:
+                columns.append("description = ?")
+                values.append(new_val)
+                details_changed.append("description")
+
+        if "tags" in data:
+            new_val = normalize_tags(data["tags"])
+            if new_val != current_row["tags"]:
+                columns.append("tags = ?")
+                values.append(new_val)
+                details_changed.append("tags")
+
+        if details_changed:
+            activity_rows.append(("details_edited", ", ".join(details_changed) + " updated"))
+
+        # --- due_date ---
+        if "due_date" in data:
+            if data["due_date"] is None:
+                new_val = None
+            else:
+                new_val = parse_due_date(data["due_date"])
+            if new_val != current["due_date"]:
+                columns.append("due_date = ?")
+                values.append(new_val)
+                if new_val is None:
+                    activity_rows.append(("due_date_changed", "due date cleared"))
+                else:
+                    activity_rows.append(("due_date_changed", f"due date set to {new_val}"))
+
+        # --- assignee_id ---
+        if "assignee_id" in data:
+            assignee_id = data["assignee_id"]
+            if assignee_id is not None:
+                assignee_id = parse_id(assignee_id, "assignee_id")
+            if assignee_id != current["assignee_id"]:
+                columns.append("assignee_id = ?")
+                values.append(assignee_id)
+                if assignee_id is None:
+                    activity_rows.append(("reassigned", "assignee cleared"))
+                else:
+                    user_name = _get_user_name(assignee_id)
+                    activity_rows.append(("reassigned", f"assigned to {user_name}"))
+
+        if not columns:
+            # All supplied values were identical to existing — still a no-op.
+            return get_task(task_id)
+
+        values.append(task_id)
+        sql = "UPDATE tasks SET " + ", ".join(columns) + " WHERE id = ?"
+
         cursor = db.execute(sql, values)
         if cursor.rowcount == 0:
             raise NotFoundError(f"task {task_id} not found")
@@ -305,16 +327,20 @@ def complete_task(task_id):
         raise NotFoundError(f"task {task_id} not found")
     db = get_db()
 
-    current_row = db.execute(
-        "SELECT status FROM tasks WHERE id = ?", (task_id,)
-    ).fetchone()
-    if current_row is None:
-        raise NotFoundError(f"task {task_id} not found")
-
-    old_status = current_row["status"]
     now = datetime.now(timezone.utc).isoformat(timespec="seconds")
 
     with db:
+        # Read the current status inside the transaction so that concurrent
+        # calls cannot both read "open", both pass the guard, and both insert
+        # duplicate activity rows.
+        current_row = db.execute(
+            "SELECT status FROM tasks WHERE id = ?", (task_id,)
+        ).fetchone()
+        if current_row is None:
+            raise NotFoundError(f"task {task_id} not found")
+
+        old_status = current_row["status"]
+
         cursor = db.execute(
             "UPDATE tasks SET completed = 1, status = 'completed' WHERE id = ?",
             (task_id,),

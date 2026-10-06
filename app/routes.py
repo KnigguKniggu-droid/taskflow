@@ -12,6 +12,14 @@ from . import services
 bp = Blueprint("api", __name__)
 
 
+@bp.after_app_request
+def _add_security_headers(response):
+    """Add baseline security headers to every response."""
+    response.headers.setdefault("X-Content-Type-Options", "nosniff")
+    response.headers.setdefault("X-Frame-Options", "SAMEORIGIN")
+    return response
+
+
 @bp.route("/")
 def index():
     return current_app.send_static_file("index.html")

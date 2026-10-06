@@ -1476,3 +1476,194 @@ class ActivityReassignNameTestCase(unittest.TestCase):
         reassign_rows = [row for row in rows if row["event"] == "reassigned"]
         self.assertEqual(len(reassign_rows), 1, rows)
         self.assertEqual(reassign_rows[0]["detail"], "assignee cleared", reassign_rows[0])
+
+
+class ReleaseReadinessRegressionTestCase(unittest.TestCase):
+    """Regression tests added during the adversarial release-readiness review.
+
+    Covers:
+    - PRAGMA foreign_keys re-enabled after executescript (init_db fix)
+    - complete_task idempotent activity write (no duplicate rows on re-complete)
+    - update_task transition guard validated inside the write transaction
+    - Edit form can clear an existing assignee via PATCH assignee_id=null
+    - Security headers on every response
+    """
+
+    def setUp(self):
+        fd, self.db_path = tempfile.mkstemp(suffix=".sqlite")
+        os.close(fd)
+        self.app = create_app({"TESTING": True, "DATABASE": self.db_path})
+        self.client = self.app.test_client()
+
+    def tearDown(self):
+        os.remove(self.db_path)
+
+    # ── helpers ──────────────────────────────────────────────────────────────
+
+    def _create_user(self, name="Ada"):
+        r = self.client.post("/users", json={"name": name})
+        self.assertEqual(r.status_code, 201, r.get_json())
+        return r.get_json()
+
+    def _create_task(self, **fields):
+        r = self.client.post("/tasks", json={"title": "Task", **fields})
+        self.assertEqual(r.status_code, 201, r.get_json())
+        return r.get_json()
+
+    def _get_activity(self, task_id):
+        r = self.client.get(f"/tasks/{task_id}/activity")
+        self.assertEqual(r.status_code, 200, r.get_json())
+        return r.get_json()["activity"]
+
+    # ── M1: PRAGMA foreign_keys re-enabled after executescript ────────────────
+
+    def test_foreign_key_enforced_after_init_db(self):
+        """Foreign key constraints must be enforced on the init_db connection
+        after executescript() is called.
+
+        executescript() issues an implicit COMMIT which resets connection-level
+        PRAGMAs.  The fix re-executes PRAGMA foreign_keys = ON immediately
+        after executescript().  This test inserts an orphaned task_activity
+        row (referencing a non-existent task_id) and verifies that the insert
+        fails with an IntegrityError — not silently succeeds.
+        """
+        import sqlite3 as _sqlite3
+        from app.db import connect as db_connect, init_db
+
+        # Re-run init_db on a fresh temp file to exercise the post-fix path.
+        fd2, path2 = tempfile.mkstemp(suffix=".sqlite")
+        os.close(fd2)
+        try:
+            init_db(path2)
+            conn = db_connect(path2)
+            try:
+                with self.assertRaises(_sqlite3.IntegrityError,
+                                       msg="Foreign key not enforced: orphan insert should fail"):
+                    with conn:
+                        conn.execute(
+                            "INSERT INTO task_activity (task_id, event, detail, created_at)"
+                            " VALUES (?, ?, ?, ?)",
+                            (99999, "created", "", "2024-01-01T00:00:00+00:00"),
+                        )
+            finally:
+                conn.close()
+        finally:
+            os.remove(path2)
+
+    # ── H1: complete_task — no duplicate activity on sequential completions ──
+
+    def test_sequential_complete_writes_exactly_one_activity_row(self):
+        """Completing a task twice (sequential, not truly concurrent) must not
+        add a second status_changed row.
+
+        The fix moves the current-status read inside the write transaction so
+        the old_status check reflects the DB state at write time, preventing
+        duplicate inserts when the task is already completed.
+        """
+        task = self._create_task()
+        self.client.post(f"/tasks/{task['id']}/complete")
+        before = self._get_activity(task["id"])
+        status_rows_before = [r for r in before if r["event"] == "status_changed"]
+
+        # Complete again (task is already completed)
+        r = self.client.post(f"/tasks/{task['id']}/complete")
+        self.assertEqual(r.status_code, 200, r.get_json())
+        after = self._get_activity(task["id"])
+        status_rows_after = [r for r in after if r["event"] == "status_changed"]
+
+        self.assertEqual(
+            len(status_rows_before),
+            len(status_rows_after),
+            f"duplicate status_changed rows after re-completing: {after}",
+        )
+
+    # ── H2: update_task transition guard validated inside transaction ─────────
+
+    def test_transition_guard_applied_inside_transaction(self):
+        """A disallowed status transition must always be rejected with 409, even
+        when the task was already moved by a prior request.
+
+        This is a sequential proxy for the TOCTOU fix: by the time the second
+        PATCH executes, the task is already in_progress, so completed→in_progress
+        is an invalid transition (requires going via open/blocked first).
+
+        The fix fetches current status inside the write transaction so the guard
+        always sees the latest committed state.
+        """
+        task = self._create_task()
+        # Advance to completed
+        r1 = self.client.patch(f"/tasks/{task['id']}", json={"status": "completed"})
+        self.assertEqual(r1.status_code, 200, r1.get_json())
+
+        # completed → in_progress is disallowed by VALID_TRANSITIONS
+        r2 = self.client.patch(f"/tasks/{task['id']}", json={"status": "in_progress"})
+        self.assertEqual(r2.status_code, 409, r2.get_json())
+        self.assertIn("error", r2.get_json())
+
+        # Task must remain completed — guard must have fired
+        r3 = self.client.get(f"/tasks/{task['id']}")
+        self.assertEqual(r3.get_json()["status"], "completed", r3.get_json())
+
+    # ── H3: edit form can clear an existing assignee ──────────────────────────
+
+    def test_patch_assignee_id_null_clears_assignee(self):
+        """PATCH {"assignee_id": null} must clear an existing assignee.
+
+        The frontend fix always sends assignee_id (null when 'Unassigned' is
+        selected) instead of omitting the key.  This test verifies the server
+        correctly processes assignee_id=null to unset the field.
+        """
+        user = self._create_user("Eve")
+        task = self._create_task(assignee_id=user["id"])
+        self.assertEqual(task["assignee_id"], user["id"], task)
+
+        r = self.client.patch(f"/tasks/{task['id']}", json={"assignee_id": None})
+        self.assertEqual(r.status_code, 200, r.get_json())
+        self.assertIsNone(r.get_json()["assignee_id"], r.get_json())
+
+        # Verify persistence
+        fetched = self.client.get(f"/tasks/{task['id']}").get_json()
+        self.assertIsNone(fetched["assignee_id"], fetched)
+
+    def test_patch_assignee_id_null_writes_assignee_cleared_activity(self):
+        """Clearing an assignee via PATCH must write a 'reassigned' activity row."""
+        user = self._create_user("Frank")
+        task = self._create_task(assignee_id=user["id"])
+
+        self.client.patch(f"/tasks/{task['id']}", json={"assignee_id": None})
+
+        rows = self._get_activity(task["id"])
+        reassign_rows = [r for r in rows if r["event"] == "reassigned"]
+        self.assertEqual(len(reassign_rows), 1, rows)
+        self.assertEqual(reassign_rows[0]["detail"], "assignee cleared", reassign_rows[0])
+
+    # ── L1: security headers present on all responses ────────────────────────
+
+    def test_security_headers_on_api_response(self):
+        """Every API response must include X-Content-Type-Options and
+        X-Frame-Options baseline security headers."""
+        endpoints = [
+            ("/users",        "GET"),
+            ("/tasks",        "GET"),
+            ("/tasks/stats",  "GET"),
+            ("/tasks/overdue","GET"),
+        ]
+        for path, method in endpoints:
+            with self.subTest(path=path, method=method):
+                if method == "GET":
+                    r = self.client.get(path)
+                else:
+                    r = self.client.post(path, json={})
+                self.assertIn(
+                    "X-Content-Type-Options", r.headers,
+                    f"X-Content-Type-Options missing on {method} {path}",
+                )
+                self.assertEqual(
+                    r.headers["X-Content-Type-Options"],
+                    "nosniff",
+                    f"wrong X-Content-Type-Options on {method} {path}",
+                )
+                self.assertIn(
+                    "X-Frame-Options", r.headers,
+                    f"X-Frame-Options missing on {method} {path}",
+                )

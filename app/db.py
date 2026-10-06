@@ -83,6 +83,11 @@ def init_db(database):
     conn = connect(database)
     try:
         conn.executescript(SCHEMA)
+        # executescript() issues an implicit COMMIT before running, which
+        # resets connection-level PRAGMAs (including foreign_keys) back to
+        # their SQLite defaults.  Re-enable foreign key enforcement so that
+        # subsequent DML in this connection is fully guarded.
+        conn.execute("PRAGMA foreign_keys = ON")
         with conn:
             # Backfill rows created before the NOT NULL DEFAULT 0 migration.
             # Safe to run on a fresh database (no rows → no-op).
