@@ -82,9 +82,19 @@ def complete_task(task_id):
     return jsonify(services.complete_task(task_id))
 
 
+@bp.get("/tasks/<id:task_id>/activity")
+def get_task_activity(task_id):
+    return jsonify({"activity": services.get_task_activity(task_id)})
+
+
 @bp.app_errorhandler(services.ValidationError)
 def handle_validation_error(error):
     return jsonify({"error": str(error)}), 400
+
+
+@bp.app_errorhandler(services.TransitionError)
+def handle_transition_error(error):
+    return jsonify({"error": str(error)}), 409
 
 
 @bp.app_errorhandler(services.NotFoundError)
