@@ -1397,3 +1397,82 @@ class StatsBreakdownTestCase(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ActivityReassignNameTestCase(unittest.TestCase):
+    """Regression tests: reassign activity detail must record the user's name,
+    not a raw user ID string like 'assigned to user 2'."""
+
+    def setUp(self):
+        fd, self.db_path = tempfile.mkstemp(suffix=".sqlite")
+        os.close(fd)
+        self.app = create_app({"TESTING": True, "DATABASE": self.db_path})
+        self.client = self.app.test_client()
+
+    def tearDown(self):
+        os.remove(self.db_path)
+
+    def _create_user(self, name):
+        r = self.client.post("/users", json={"name": name})
+        self.assertEqual(r.status_code, 201, r.get_json())
+        return r.get_json()
+
+    def _create_task(self, **fields):
+        r = self.client.post("/tasks", json={"title": "Task", **fields})
+        self.assertEqual(r.status_code, 201, r.get_json())
+        return r.get_json()
+
+    def _get_activity(self, task_id):
+        r = self.client.get(f"/tasks/{task_id}/activity")
+        self.assertEqual(r.status_code, 200, r.get_json())
+        return r.get_json()["activity"]
+
+    def test_reassign_detail_contains_user_name_not_id(self):
+        """Assigning a task must record the user's name in the activity detail,
+        not the raw numeric ID (e.g. 'assigned to Alice' not 'assigned to user 2')."""
+        user = self._create_user("Alice")
+        task = self._create_task()
+
+        r = self.client.patch(f"/tasks/{task['id']}", json={"assignee_id": user["id"]})
+        self.assertEqual(r.status_code, 200, r.get_json())
+
+        rows = self._get_activity(task["id"])
+        reassign_rows = [row for row in rows if row["event"] == "reassigned"]
+        self.assertEqual(len(reassign_rows), 1, rows)
+
+        detail = reassign_rows[0]["detail"]
+        self.assertIn("Alice", detail, f"user name missing from detail: {detail!r}")
+        self.assertNotIn(f"user {user['id']}", detail,
+                         f"raw user ID found in detail: {detail!r}")
+
+    def test_reassign_detail_uses_current_user_name(self):
+        """The stored detail must match the name of the user at the time of assignment."""
+        user_bob   = self._create_user("Bob")
+        user_carol = self._create_user("Carol")
+        task = self._create_task()
+
+        # Assign to Bob
+        self.client.patch(f"/tasks/{task['id']}", json={"assignee_id": user_bob["id"]})
+        # Reassign to Carol
+        self.client.patch(f"/tasks/{task['id']}", json={"assignee_id": user_carol["id"]})
+
+        rows = self._get_activity(task["id"])
+        reassign_rows = [row for row in rows if row["event"] == "reassigned"]
+        self.assertEqual(len(reassign_rows), 2, rows)
+
+        details = [r["detail"] for r in reassign_rows]
+        self.assertIn("Bob",   details[0], f"first reassign detail: {details[0]!r}")
+        self.assertIn("Carol", details[1], f"second reassign detail: {details[1]!r}")
+
+    def test_clear_assignee_still_records_cleared(self):
+        """Removing the assignee must record 'assignee cleared', not a name."""
+        user = self._create_user("Dana")
+        task = self._create_task(assignee_id=user["id"])
+
+        r = self.client.patch(f"/tasks/{task['id']}", json={"assignee_id": None})
+        self.assertEqual(r.status_code, 200, r.get_json())
+
+        rows = self._get_activity(task["id"])
+        reassign_rows = [row for row in rows if row["event"] == "reassigned"]
+        self.assertEqual(len(reassign_rows), 1, rows)
+        self.assertEqual(reassign_rows[0]["detail"], "assignee cleared", reassign_rows[0])

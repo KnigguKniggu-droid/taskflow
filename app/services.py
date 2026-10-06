@@ -277,7 +277,8 @@ def update_task(task_id, data):
             if assignee_id is None:
                 activity_rows.append(("reassigned", "assignee cleared"))
             else:
-                activity_rows.append(("reassigned", f"assigned to user {assignee_id}"))
+                user_name = _get_user_name(assignee_id)
+                activity_rows.append(("reassigned", f"assigned to {user_name}"))
 
     if not columns:
         # All supplied values were identical to existing — still a no-op.
@@ -439,6 +440,12 @@ def parse_tag_param(raw):
 def _user_exists(user_id):
     row = get_db().execute("SELECT 1 FROM users WHERE id = ?", (user_id,)).fetchone()
     return row is not None
+
+
+def _get_user_name(user_id):
+    """Return the name of a user by id, or a fallback string if not found."""
+    row = get_db().execute("SELECT name FROM users WHERE id = ?", (user_id,)).fetchone()
+    return row["name"] if row else f"user {user_id}"
 
 
 def _reject_unknown_fields(data, allowed):

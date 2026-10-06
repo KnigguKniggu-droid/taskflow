@@ -62,7 +62,7 @@ header h1 {
 /* --- Stats cards -------------------------------------------------- */
 #stats {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  grid-template-columns: repeat(6, 1fr);
   gap: var(--space-md);
   margin-bottom: var(--space-xs);
 }
@@ -532,7 +532,7 @@ button[type="submit"]:hover {
 /* --- Responsive: small screens ------------------------------------ */
 @media (max-width: 600px) {
   #stats {
-    grid-template-columns: 1fr;
+    grid-template-columns: repeat(2, 1fr);
   }
 
   #filter-form {

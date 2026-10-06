@@ -37,8 +37,11 @@ const ACTIVITY_LABELS = {
 };
 
 export function renderStatCards(stats) {
+  // stats.open from the API is all non-completed (backward-compat sum).
+  // The Open card should show only strictly-open tasks; subtract in_progress + blocked.
+  const openOnly = stats.open - (stats.in_progress || 0) - (stats.blocked || 0);
   document.getElementById('stat-total').textContent       = stats.total;
-  document.getElementById('stat-open').textContent        = stats.open;
+  document.getElementById('stat-open').textContent        = openOnly;
   document.getElementById('stat-in-progress').textContent = stats.in_progress ?? '—';
   document.getElementById('stat-blocked').textContent     = stats.blocked ?? '—';
   document.getElementById('stat-overdue').textContent     = stats.overdue;
@@ -62,16 +65,21 @@ export function populateUserSelect(users, selectEl, allLabel = '— All —') {
 function _statusBadgeEl(task) {
   const today = todayISO();
   const isOverdue = task.status !== 'completed' && task.due_date && task.due_date < today;
-  const badge = document.createElement('span');
+  const frag = document.createDocumentFragment();
+  // Always show the real status badge first
+  const info = STATUS_BADGE[task.status] || STATUS_BADGE.open;
+  const statusBadge = document.createElement('span');
+  statusBadge.className = info.cssClass;
+  statusBadge.textContent = info.label;
+  frag.appendChild(statusBadge);
+  // Append an overdue badge alongside when the task is overdue
   if (isOverdue) {
-    badge.className = 'badge-overdue';
-    badge.textContent = 'Overdue';
-  } else {
-    const info = STATUS_BADGE[task.status] || STATUS_BADGE.open;
-    badge.className = info.cssClass;
-    badge.textContent = info.label;
+    const overdueBadge = document.createElement('span');
+    overdueBadge.className = 'badge-overdue';
+    overdueBadge.textContent = 'Overdue';
+    frag.appendChild(overdueBadge);
   }
-  return badge;
+  return frag;
 }
 
 export function renderTask(task, usersMap) {
@@ -145,7 +153,7 @@ export function renderFilteredStats(tasks) {
     }
   }
   document.getElementById('stat-total').textContent       = tasks.length;
-  document.getElementById('stat-open').textContent        = open + in_progress + blocked;
+  document.getElementById('stat-open').textContent        = open;
   document.getElementById('stat-in-progress').textContent = in_progress;
   document.getElementById('stat-blocked').textContent     = blocked;
   document.getElementById('stat-overdue').textContent     = overdue;
@@ -156,13 +164,11 @@ export function renderTaskDetail(task, usersMap) {
   const today = todayISO();
   const isOverdue = task.status !== 'completed' && task.due_date && task.due_date < today;
 
-  // Status badge HTML
-  let statusBadgeHtml;
+  // Status badge HTML — always show the real status; add overdue badge alongside when applicable
+  const info = STATUS_BADGE[task.status] || STATUS_BADGE.open;
+  let statusBadgeHtml = `<span class="${escHtml(info.cssClass)}">${escHtml(info.label)}</span>`;
   if (isOverdue) {
-    statusBadgeHtml = '<span class="badge-overdue">Overdue</span>';
-  } else {
-    const info = STATUS_BADGE[task.status] || STATUS_BADGE.open;
-    statusBadgeHtml = `<span class="${escHtml(info.cssClass)}">${escHtml(info.label)}</span>`;
+    statusBadgeHtml += ' <span class="badge-overdue">Overdue</span>';
   }
 
   // Description
