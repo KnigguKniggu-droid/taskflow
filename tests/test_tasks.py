@@ -561,5 +561,114 @@ class StatsEndpointTestCase(unittest.TestCase):
         self.assertEqual(stats_after["overdue"], 0, stats_after)
 
 
+class UpdateTaskTestCase(unittest.TestCase):
+    def setUp(self):
+        fd, self.db_path = tempfile.mkstemp(suffix=".sqlite")
+        os.close(fd)
+        self.app = create_app({"TESTING": True, "DATABASE": self.db_path})
+        self.client = self.app.test_client()
+
+    def tearDown(self):
+        os.remove(self.db_path)
+
+    def create_user(self, name="Ada"):
+        response = self.client.post("/users", json={"name": name})
+        self.assertEqual(response.status_code, 201, response.get_json())
+        return response.get_json()
+
+    def create_task(self, **fields):
+        response = self.client.post("/tasks", json={"title": "Original Title", **fields})
+        self.assertEqual(response.status_code, 201, response.get_json())
+        return response.get_json()
+
+    def patch_task(self, task_id, body):
+        return self.client.patch(f"/tasks/{task_id}", json=body)
+
+    def test_update_title(self):
+        task = self.create_task()
+        r = self.patch_task(task["id"], {"title": "B"})
+        self.assertEqual(r.status_code, 200, r.get_json())
+        self.assertEqual(r.get_json()["title"], "B")
+
+    def test_update_assignee(self):
+        user = self.create_user()
+        task = self.create_task()
+        r = self.patch_task(task["id"], {"assignee_id": user["id"]})
+        self.assertEqual(r.status_code, 200, r.get_json())
+        self.assertEqual(r.get_json()["assignee_id"], user["id"])
+
+    def test_update_tags(self):
+        task = self.create_task()
+        r = self.patch_task(task["id"], {"tags": ["python", "flask"]})
+        self.assertEqual(r.status_code, 200, r.get_json())
+        self.assertEqual(r.get_json()["tags"], ["python", "flask"])
+
+    def test_update_due_date(self):
+        task = self.create_task()
+        r = self.patch_task(task["id"], {"due_date": "2030-06-15"})
+        self.assertEqual(r.status_code, 200, r.get_json())
+        self.assertEqual(r.get_json()["due_date"], "2030-06-15")
+
+    def test_clear_due_date(self):
+        task = self.create_task(due_date="2030-01-01")
+        r = self.patch_task(task["id"], {"due_date": None})
+        self.assertEqual(r.status_code, 200, r.get_json())
+        self.assertIsNone(r.get_json()["due_date"])
+
+    def test_update_multiple_fields(self):
+        task = self.create_task()
+        r = self.patch_task(task["id"], {
+            "title": "Updated",
+            "tags": ["multi"],
+            "due_date": "2031-03-10",
+        })
+        self.assertEqual(r.status_code, 200, r.get_json())
+        data = r.get_json()
+        self.assertEqual(data["title"], "Updated")
+        self.assertEqual(data["tags"], ["multi"])
+        self.assertEqual(data["due_date"], "2031-03-10")
+
+    def test_empty_body_is_noop(self):
+        task = self.create_task()
+        r = self.patch_task(task["id"], {})
+        self.assertEqual(r.status_code, 200, r.get_json())
+        self.assertEqual(r.get_json()["title"], task["title"])
+
+    def test_404(self):
+        r = self.patch_task(99999, {"title": "Ghost"})
+        self.assertEqual(r.status_code, 404, r.get_json())
+        self.assertIn("error", r.get_json())
+
+    def test_unknown_field_rejected(self):
+        task = self.create_task()
+        r = self.patch_task(task["id"], {"completed": True})
+        self.assertEqual(r.status_code, 400, r.get_json())
+        self.assertIn("error", r.get_json())
+
+    def test_invalid_title(self):
+        task = self.create_task()
+        r = self.patch_task(task["id"], {"title": ""})
+        self.assertEqual(r.status_code, 400, r.get_json())
+        self.assertIn("error", r.get_json())
+
+    def test_invalid_due_date(self):
+        task = self.create_task()
+        r = self.patch_task(task["id"], {"due_date": "not-a-date"})
+        self.assertEqual(r.status_code, 400, r.get_json())
+        self.assertIn("error", r.get_json())
+
+    def test_invalid_assignee(self):
+        task = self.create_task()
+        r = self.patch_task(task["id"], {"assignee_id": 99999})
+        self.assertEqual(r.status_code, 400, r.get_json())
+        self.assertIn("does not match an existing user", r.get_json()["error"])
+
+    def test_completed_not_settable(self):
+        task = self.create_task()
+        r = self.patch_task(task["id"], {"completed": True})
+        self.assertEqual(r.status_code, 400, r.get_json())
+        self.assertIn("error", r.get_json())
+
+
 if __name__ == "__main__":
     unittest.main()

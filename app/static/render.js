@@ -182,4 +182,17 @@ function escHtml(str) {
     .replace(/"/g, '&quot;');
 }
 
-export function renderEditForm(task, usersMap)   { /* TODO M6 */ }
+export function renderEditForm(task, usersMap) {
+  document.getElementById('et-title').value = task.title;
+  document.getElementById('et-desc').value  = task.description ?? '';
+  document.getElementById('et-tags').value  = (task.tags ?? []).join(', ');
+  document.getElementById('et-due').value   = task.due_date ?? '';
+
+  const sel = document.getElementById('et-assignee');
+  populateUserSelect(
+    [...usersMap.entries()].map(([id, name]) => ({ id, name })),
+    sel,
+    'Unassigned'
+  );
+  sel.value = task.assignee_id ?? '';
+}

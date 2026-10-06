@@ -85,8 +85,40 @@
   <dialog id="modal-task-detail" aria-modal="true" aria-labelledby="detail-title">
     <h2 id="detail-title"></h2>
     <div id="detail-body"></div>
+
+    <div id="detail-edit-form" hidden>
+      <form id="form-edit-task">
+        <label for="et-title">Title *</label>
+        <input id="et-title" name="title" type="text" required>
+
+        <label for="et-desc">Description</label>
+        <textarea id="et-desc" name="description"></textarea>
+
+        <label for="et-tags">Tags</label>
+        <input id="et-tags" name="tags" type="text" placeholder="comma-separated">
+
+        <label for="et-due">Due Date</label>
+        <input id="et-due" name="due_date" type="date">
+
+        <label for="et-assignee">Assignee</label>
+        <select id="et-assignee" name="assignee_id">
+          <option value="">Unassigned</option>
+        </select>
+
+        <p id="edit-error" role="alert" hidden></p>
+
+        <div class="dialog-buttons">
+          <button type="submit">Save</button>
+          <button type="button" id="btn-cancel-edit">Cancel</button>
+        </div>
+      </form>
+    </div>
+
     <p id="detail-error" role="alert" hidden></p>
-    <button type="button" id="btn-close-detail">Close</button>
+    <div class="dialog-buttons">
+      <button type="button" id="btn-edit-task" hidden>Edit</button>
+      <button type="button" id="btn-close-detail">Close</button>
+    </div>
   </dialog>
 
   <div id="error-banner" role="alert" aria-live="assertive" hidden>

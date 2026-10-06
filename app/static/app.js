@@ -3,8 +3,9 @@ import * as api from '/static/api.js';
 import * as render from '/static/render.js';
 import * as modal from '/static/modal.js';
 
-let usersMap = new Map();   // id (number) → name (string)
+let usersMap = new Map();         // id (number) → name (string)
 let currentFilter = {};
+let currentDetailTaskId = null;   // id of the task currently shown in the detail dialog
 
 async function loadUsers() {
   const data = await api.get('/users');
@@ -63,44 +64,55 @@ function buildQS(params) {
 }
 
 async function openTaskDetail(taskId, returnEl) {
-  const detailDialog = document.getElementById('modal-task-detail');
-  const detailTitle  = document.getElementById('detail-title');
-  const detailBody   = document.getElementById('detail-body');
-  const detailError  = document.getElementById('detail-error');
+  const detailDialog  = document.getElementById('modal-task-detail');
+  const detailTitle   = document.getElementById('detail-title');
+  const detailBody    = document.getElementById('detail-body');
+  const detailError   = document.getElementById('detail-error');
+  const editForm      = document.getElementById('detail-edit-form');
+  const btnEditTask   = document.getElementById('btn-edit-task');
 
-  // Clear previous content
+  // Reset to read view
   detailTitle.textContent = '…';
   detailBody.innerHTML    = '';
   detailError.hidden      = true;
+  editForm.hidden         = true;
+  detailBody.hidden       = false;
+  btnEditTask.hidden      = true;
 
   modal.openModal(detailDialog, returnEl);
 
   try {
     const task = await api.get(`/tasks/${taskId}`);
     const { html, title } = render.renderTaskDetail(task, usersMap);
-    detailTitle.textContent = title;
-    detailBody.innerHTML    = html;
+    detailTitle.textContent  = title;
+    detailBody.innerHTML     = html;
+    currentDetailTaskId      = task.id;
+    btnEditTask.hidden        = false;
+    render.renderEditForm(task, usersMap);
 
     // Wire "Mark Complete" button if present
-    const completeBtn = detailBody.querySelector('#btn-complete-task');
-    if (completeBtn) {
-      completeBtn.addEventListener('click', async () => {
-        completeBtn.disabled = true;
-        try {
-          await api.post(`/tasks/${taskId}/complete`, {});
-          modal.closeModal(detailDialog);
-          await Promise.all([loadStats(), loadTasks(currentFilter)]);
-        } catch (err) {
-          detailError.textContent = err.message;
-          detailError.hidden = false;
-          completeBtn.disabled = false;
-        }
-      });
-    }
+    _wireCompleteButton(detailBody, taskId, detailDialog, detailError);
   } catch (err) {
     detailError.textContent = err.message;
     detailError.hidden = false;
   }
+}
+
+function _wireCompleteButton(detailBody, taskId, detailDialog, detailError) {
+  const completeBtn = detailBody.querySelector('#btn-complete-task');
+  if (!completeBtn) return;
+  completeBtn.addEventListener('click', async () => {
+    completeBtn.disabled = true;
+    try {
+      await api.post(`/tasks/${taskId}/complete`, {});
+      modal.closeModal(detailDialog);
+      await Promise.all([loadStats(), loadTasks(currentFilter)]);
+    } catch (err) {
+      detailError.textContent = err.message;
+      detailError.hidden = false;
+      completeBtn.disabled = false;
+    }
+  });
 }
 
 async function submitCreateTask() {
@@ -127,6 +139,45 @@ async function submitCreateTask() {
     const createDialog = document.getElementById('modal-create-task');
     modal.closeModal(createDialog);
     document.getElementById('form-create-task').reset();
+    await Promise.all([loadStats(), loadTasks(currentFilter)]);
+  } catch (err) {
+    errorEl.textContent = err.message;
+    errorEl.hidden = false;
+  } finally {
+    submitBtn.disabled = false;
+  }
+}
+
+async function submitUpdateTask(taskId) {
+  const body = {};
+  body.title       = document.getElementById('et-title').value.trim();
+  body.description = document.getElementById('et-desc').value.trim();
+  body.tags        = document.getElementById('et-tags').value.trim();
+  const dueVal     = document.getElementById('et-due').value;
+  body.due_date    = dueVal === '' ? null : dueVal;
+  const assigneeVal = document.getElementById('et-assignee').value;
+  if (assigneeVal !== '') body.assignee_id = Number(assigneeVal);
+
+  const errorEl   = document.getElementById('edit-error');
+  const submitBtn = document.querySelector('#form-edit-task button[type="submit"]');
+  errorEl.hidden   = true;
+  submitBtn.disabled = true;
+
+  try {
+    const task = await api.patch(`/tasks/${taskId}`, body);
+    const { html, title } = render.renderTaskDetail(task, usersMap);
+    const detailDialog = document.getElementById('modal-task-detail');
+    const detailBody   = document.getElementById('detail-body');
+    const detailError  = document.getElementById('detail-error');
+
+    document.getElementById('detail-title').textContent = title;
+    detailBody.innerHTML = html;
+    document.getElementById('detail-edit-form').hidden = true;
+    detailBody.hidden = false;
+    document.getElementById('btn-edit-task').hidden = false;
+    render.renderEditForm(task, usersMap);
+
+    _wireCompleteButton(detailBody, taskId, detailDialog, detailError);
     await Promise.all([loadStats(), loadTasks(currentFilter)]);
   } catch (err) {
     errorEl.textContent = err.message;
@@ -176,10 +227,33 @@ document.addEventListener('DOMContentLoaded', () => {
     submitCreateTask();
   });
 
-  // Task detail modal (close button stub — full impl M5)
+  // Task detail modal
   const detailDialog = document.getElementById('modal-task-detail');
+
   document.getElementById('btn-close-detail').addEventListener('click', () => {
+    document.getElementById('detail-edit-form').hidden = true;
+    document.getElementById('detail-body').hidden      = false;
+    document.getElementById('btn-edit-task').hidden    = true;
     modal.closeModal(detailDialog);
+  });
+
+  document.getElementById('btn-edit-task').addEventListener('click', () => {
+    document.getElementById('detail-body').hidden      = true;
+    document.getElementById('btn-edit-task').hidden    = true;
+    document.getElementById('detail-edit-form').hidden = false;
+    document.getElementById('edit-error').hidden       = true;
+    document.getElementById('et-title').focus();
+  });
+
+  document.getElementById('btn-cancel-edit').addEventListener('click', () => {
+    document.getElementById('detail-edit-form').hidden = true;
+    document.getElementById('detail-body').hidden      = false;
+    document.getElementById('btn-edit-task').hidden    = false;
+  });
+
+  document.getElementById('form-edit-task').addEventListener('submit', async e => {
+    e.preventDefault();
+    await submitUpdateTask(currentDetailTaskId);
   });
 
   // Initial load

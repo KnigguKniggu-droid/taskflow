@@ -139,6 +139,64 @@ def list_tasks(assignee_id=None, tag=None):
     return [_task_to_dict(row) for row in get_db().execute(query, params)]
 
 
+def update_task(task_id, data):
+    """Partially update a task and return it, or raise NotFoundError / ValidationError.
+
+    Only keys present in *data* are updated.  Passing ``{"due_date": null}``
+    explicitly clears the due date; omitting the key leaves it unchanged.
+    ``completed`` and ``created_at`` are not accepted (rejected by
+    _reject_unknown_fields).
+    """
+    _reject_unknown_fields(data, TASK_FIELDS)
+
+    if not data:
+        # No-op: validate the task exists then return unchanged.
+        return get_task(task_id)
+
+    columns = []
+    values = []
+
+    if "title" in data:
+        columns.append("title = ?")
+        values.append(_required_text(data, "title", MAX_TITLE_LENGTH))
+
+    if "description" in data:
+        columns.append("description = ?")
+        values.append(_optional_text(data, "description", MAX_DESCRIPTION_LENGTH))
+
+    if "tags" in data:
+        columns.append("tags = ?")
+        values.append(normalize_tags(data["tags"]))
+
+    if "due_date" in data:
+        if data["due_date"] is None:
+            # Explicit null → clear the due date.
+            columns.append("due_date = ?")
+            values.append(None)
+        else:
+            columns.append("due_date = ?")
+            values.append(parse_due_date(data["due_date"]))
+
+    if "assignee_id" in data:
+        assignee_id = data["assignee_id"]
+        if assignee_id is not None:
+            assignee_id = parse_id(assignee_id, "assignee_id")
+            if not _user_exists(assignee_id):
+                raise ValidationError("assignee_id does not match an existing user")
+        columns.append("assignee_id = ?")
+        values.append(assignee_id)
+
+    values.append(task_id)
+    sql = "UPDATE tasks SET " + ", ".join(columns) + " WHERE id = ?"
+
+    db = get_db()
+    with db:
+        cursor = db.execute(sql, values)
+    if cursor.rowcount == 0:
+        raise NotFoundError(f"task {task_id} not found")
+    return get_task(task_id)
+
+
 def complete_task(task_id):
     """Mark a task as completed and return it, or raise NotFoundError."""
     if not 0 < task_id <= MAX_ID:

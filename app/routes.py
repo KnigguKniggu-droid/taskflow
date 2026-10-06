@@ -70,6 +70,13 @@ def get_task(task_id):
     return jsonify(services.get_task(task_id))
 
 
+@bp.route("/tasks/<id:task_id>", methods=["PATCH"])
+def patch_task(task_id):
+    data = _json_body()
+    task = services.update_task(task_id, data)
+    return jsonify(task), 200
+
+
 @bp.post("/tasks/<id:task_id>/complete")
 def complete_task(task_id):
     return jsonify(services.complete_task(task_id))
