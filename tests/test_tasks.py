@@ -46,6 +46,7 @@ class TaskApiTestCase(unittest.TestCase):
         self.assertEqual(task["due_date"], "2030-01-15")
         self.assertEqual(task["assignee_id"], user["id"])
         self.assertFalse(task["completed"])
+        self.assertEqual(task["status"], "open", task)
 
         response = self.client.get(f"/tasks/{task['id']}")
         self.assertEqual(response.status_code, 200)
@@ -1044,6 +1045,14 @@ class StatusLifecycleTestCase(unittest.TestCase):
         self.assertEqual(r.status_code, 409, r.get_json())
         self.assertIn("error", r.get_json())
         self.assertIn("→", r.get_json()["error"])
+
+    def test_patch_same_status_is_noop_returns_200(self):
+        """PATCH with the same status value as the current status must return 200, not 409."""
+        task = self.create_task()
+        self.assertEqual(task["status"], "open")
+        r = self.patch_task(task["id"], {"status": "open"})
+        self.assertEqual(r.status_code, 200, r.get_json())
+        self.assertEqual(r.get_json()["status"], "open", r.get_json())
 
     def test_patch_unknown_status_returns_400(self):
         task = self.create_task()
