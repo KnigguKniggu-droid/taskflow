@@ -307,12 +307,40 @@ def update_task(task_id, data):
             # All supplied values were identical to existing — still a no-op.
             return get_task(task_id)
 
-        values.append(task_id)
-        sql = "UPDATE tasks SET " + ", ".join(columns) + " WHERE id = ?"
+        # When a status transition is part of this PATCH, pin the WHERE
+        # clause to the status value we validated against.  If a concurrent
+        # request changes the status between our SELECT above and this UPDATE,
+        # the ``AND status = ?`` predicate will not match, rowcount will be 0,
+        # and we raise TransitionError rather than silently writing a
+        # status_changed activity row based on stale data (TOCTOU fix).
+        status_guard = None
+        if "status" in data and data["status"] != current["status"]:
+            status_guard = current["status"]
+
+        if status_guard is not None:
+            values.append(task_id)
+            values.append(status_guard)
+            sql = (
+                "UPDATE tasks SET "
+                + ", ".join(columns)
+                + " WHERE id = ? AND status = ?"
+            )
+        else:
+            values.append(task_id)
+            sql = "UPDATE tasks SET " + ", ".join(columns) + " WHERE id = ?"
 
         cursor = db.execute(sql, values)
         if cursor.rowcount == 0:
-            raise NotFoundError(f"task {task_id} not found")
+            # Determine why: task deleted, or status changed concurrently.
+            exists = db.execute(
+                "SELECT 1 FROM tasks WHERE id = ?", (task_id,)
+            ).fetchone()
+            if exists is None:
+                raise NotFoundError(f"task {task_id} not found")
+            # Task exists but status guard failed → concurrent modification.
+            raise TransitionError(
+                f"task {task_id} was modified concurrently; retry the request"
+            )
         for event, detail in activity_rows:
             db.execute(
                 "INSERT INTO task_activity (task_id, event, detail, created_at) VALUES (?, ?, ?, ?)",
@@ -322,7 +350,16 @@ def update_task(task_id, data):
 
 
 def complete_task(task_id):
-    """Mark a task as completed and return it, or raise NotFoundError."""
+    """Mark a task as completed and return it, or raise NotFoundError.
+
+    The UPDATE itself is the idempotency guard: the WHERE clause requires the
+    task to exist AND not already be completed.  This is a single atomic
+    read-modify-write in SQLite, so two concurrent POST /complete requests on
+    the same open task cannot both see ``status != 'completed'`` and both
+    insert a duplicate status_changed activity row (the TOCTOU that a
+    SELECT-then-UPDATE leaves open even when both statements are inside
+    ``with db:``).
+    """
     if not 0 < task_id <= MAX_ID:
         raise NotFoundError(f"task {task_id} not found")
     db = get_db()
@@ -330,9 +367,12 @@ def complete_task(task_id):
     now = datetime.now(timezone.utc).isoformat(timespec="seconds")
 
     with db:
-        # Read the current status inside the transaction so that concurrent
-        # calls cannot both read "open", both pass the guard, and both insert
-        # duplicate activity rows.
+        # Fetch the old status before the UPDATE so we can record it in
+        # the activity row.  We use SELECT ... FOR NO KEY UPDATE is not
+        # supported by SQLite; instead we make the UPDATE itself the guard
+        # via ``WHERE status != 'completed'``.  If two threads race here,
+        # only one can match that WHERE clause for a given row, because
+        # SQLite serialises writes at the page level.
         current_row = db.execute(
             "SELECT status FROM tasks WHERE id = ?", (task_id,)
         ).fetchone()
@@ -340,19 +380,28 @@ def complete_task(task_id):
             raise NotFoundError(f"task {task_id} not found")
 
         old_status = current_row["status"]
-
-        cursor = db.execute(
-            "UPDATE tasks SET completed = 1, status = 'completed' WHERE id = ?",
-            (task_id,),
-        )
-        if cursor.rowcount == 0:
-            raise NotFoundError(f"task {task_id} not found")
-        # Write activity only when the status actually changed.
-        if old_status != "completed":
-            db.execute(
-                "INSERT INTO task_activity (task_id, event, detail, created_at) VALUES (?, ?, ?, ?)",
-                (task_id, "status_changed", f"{old_status} → completed", now),
+        if old_status == "completed":
+            # Already completed — idempotent, no activity row needed.
+            pass
+        else:
+            # The WHERE clause ``AND status != 'completed'`` is the atomic
+            # guard: exactly one concurrent writer will match it and commit;
+            # any other concurrent writer that races between the SELECT above
+            # and this UPDATE will find rowcount == 0 and skip the INSERT.
+            cursor = db.execute(
+                "UPDATE tasks"
+                " SET completed = 1, status = 'completed'"
+                " WHERE id = ? AND status != 'completed'",
+                (task_id,),
             )
+            if cursor.rowcount == 1:
+                db.execute(
+                    "INSERT INTO task_activity"
+                    " (task_id, event, detail, created_at) VALUES (?, ?, ?, ?)",
+                    (task_id, "status_changed", f"{old_status} → completed", now),
+                )
+            # rowcount == 0 means a concurrent request completed the task
+            # between our SELECT and this UPDATE; treat as idempotent success.
     return get_task(task_id)
 
 

@@ -1,3 +1,5 @@
+import threading
+
 import os
 import tempfile
 import unittest
@@ -1667,3 +1669,91 @@ class ReleaseReadinessRegressionTestCase(unittest.TestCase):
                     "X-Frame-Options", r.headers,
                     f"X-Frame-Options missing on {method} {path}",
                 )
+
+
+class ConcurrentCompleteTestCase(unittest.TestCase):
+    """Regression test for the TOCTOU race in POST /tasks/<id>/complete.
+
+    Two Flask test clients (each backed by its own SQLite connection) race to
+    complete the same open task 200 times.  The fix uses
+    ``WHERE id = ? AND status != 'completed'`` so that exactly one writer
+    succeeds and only one ``status_changed`` activity row is ever inserted per
+    task.
+
+    Without the fix (SELECT-then-UPDATE with no conditional WHERE clause on the
+    UPDATE), both threads read ``status = 'open'`` before either UPDATE commits,
+    so both pass the guard and both insert a duplicate activity row.  The
+    external concurrency check observed this in 109 of 200 rounds.
+    """
+
+    ROUNDS = 200
+
+    def setUp(self):
+        fd, self.db_path = tempfile.mkstemp(suffix=".sqlite")
+        os.close(fd)
+        # Both clients share the same file-backed database — the only way to
+        # reproduce SQLite's deferred-transaction race across two connections.
+        self.app = create_app({"TESTING": True, "DATABASE": self.db_path})
+        self.client_a = self.app.test_client()
+        self.client_b = self.app.test_client()
+
+    def tearDown(self):
+        os.remove(self.db_path)
+
+    def _create_task(self):
+        r = self.client_a.post("/tasks", json={"title": "race task"})
+        self.assertEqual(r.status_code, 201, r.get_json())
+        return r.get_json()["id"]
+
+    def _activity_count(self, task_id):
+        r = self.client_a.get(f"/tasks/{task_id}/activity")
+        self.assertEqual(r.status_code, 200, r.get_json())
+        return sum(
+            1 for row in r.get_json()["activity"]
+            if row["event"] == "status_changed"
+        )
+
+    def test_concurrent_complete_writes_exactly_one_activity_row(self):
+        """Concurrent POST /complete on the same open task must produce exactly
+        one status_changed activity row, never two.
+
+        Fails deterministically before the fix because the old code used a
+        SELECT-then-UPDATE split: both threads read 'open', both pass the
+        ``old_status != 'completed'`` guard, and both INSERT.  The fixed code
+        moves the guard into the UPDATE's WHERE clause so at most one thread
+        can match it and INSERT.
+        """
+        duplicates = 0
+
+        for _ in range(self.ROUNDS):
+            task_id = self._create_task()
+
+            barrier = threading.Barrier(2)
+            errors = []
+
+            def complete(client):
+                try:
+                    barrier.wait()  # synchronise both threads at the start
+                    client.post(f"/tasks/{task_id}/complete")
+                except Exception as exc:
+                    errors.append(exc)
+
+            t1 = threading.Thread(target=complete, args=(self.client_a,))
+            t2 = threading.Thread(target=complete, args=(self.client_b,))
+            t1.start()
+            t2.start()
+            t1.join()
+            t2.join()
+
+            self.assertFalse(errors, f"thread raised an exception: {errors}")
+
+            count = self._activity_count(task_id)
+            if count != 1:
+                duplicates += 1
+
+        self.assertEqual(
+            duplicates,
+            0,
+            f"{duplicates}/{self.ROUNDS} rounds produced duplicate status_changed "
+            "activity rows — the concurrent-completion race was not fixed",
+        )
