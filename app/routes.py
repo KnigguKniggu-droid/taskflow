@@ -17,6 +17,12 @@ def index():
     return current_app.send_static_file("index.html")
 
 
+@bp.get("/health")
+def health():
+    """Lightweight liveness probe — no database query."""
+    return jsonify({"status": "ok"})
+
+
 class IdConverter(IntegerConverter):
     """Like the built-in ``int`` converter, but accepts ASCII digits only."""
 
