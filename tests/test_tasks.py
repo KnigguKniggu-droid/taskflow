@@ -379,6 +379,79 @@ class SchemaInitTestCase(unittest.TestCase):
         self.assertIsNotNone(row["completed"], "backfill missing: completed is still NULL after init_db")
         self.assertEqual(row["completed"], 0, f"backfill wrong: completed={row['completed']!r}, expected 0")
 
+    def test_init_db_adds_status_column_to_new_db(self):
+        """A fresh database created by init_db must have a 'status' column on tasks."""
+        init_db(self.db_path)
+        conn = connect(self.db_path)
+        try:
+            rows = conn.execute("PRAGMA table_info(tasks)").fetchall()
+            col_names = [r["name"] for r in rows]
+        finally:
+            conn.close()
+        self.assertIn("status", col_names, "status column missing from fresh database")
+
+    def test_init_db_creates_task_activity_table(self):
+        """A fresh database must have a task_activity table after init_db."""
+        init_db(self.db_path)
+        conn = connect(self.db_path)
+        try:
+            row = conn.execute(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name='task_activity'"
+            ).fetchone()
+        finally:
+            conn.close()
+        self.assertIsNotNone(row, "task_activity table missing after init_db on fresh database")
+
+    def test_init_db_backfills_status_for_completed_rows(self):
+        """init_db must set status='completed' for rows where completed=1."""
+        # Build a pre-lifecycle database with the old schema (no status column)
+        conn = connect(self.db_path)
+        try:
+            conn.executescript(
+                """
+                CREATE TABLE IF NOT EXISTS users (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    name TEXT NOT NULL
+                );
+                CREATE TABLE IF NOT EXISTS tasks (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    title TEXT NOT NULL,
+                    description TEXT NOT NULL DEFAULT '',
+                    tags TEXT NOT NULL DEFAULT '',
+                    due_date TEXT,
+                    assignee_id INTEGER REFERENCES users (id),
+                    completed INTEGER NOT NULL DEFAULT 0,
+                    created_at TEXT NOT NULL
+                );
+                """
+            )
+            with conn:
+                conn.execute(
+                    "INSERT INTO tasks (title, completed, created_at) VALUES (?, ?, ?)",
+                    ("done-task", 1, "2024-01-01T00:00:00+00:00"),
+                )
+                conn.execute(
+                    "INSERT INTO tasks (title, completed, created_at) VALUES (?, ?, ?)",
+                    ("open-task", 0, "2024-01-01T00:00:00+00:00"),
+                )
+        finally:
+            conn.close()
+
+        # Run migration
+        init_db(self.db_path)
+
+        conn = connect(self.db_path)
+        try:
+            done_row = conn.execute("SELECT status FROM tasks WHERE title='done-task'").fetchone()
+            open_row = conn.execute("SELECT status FROM tasks WHERE title='open-task'").fetchone()
+        finally:
+            conn.close()
+
+        self.assertEqual(done_row["status"], "completed",
+                         "completed=1 row was not backfilled to status='completed'")
+        self.assertEqual(open_row["status"], "open",
+                         "completed=0 row should have status='open'")
+
 
 class OldSchemaRegressionTestCase(unittest.TestCase):
     """Regression tests for databases created with the pre-migration schema.
@@ -469,6 +542,121 @@ class OldSchemaRegressionTestCase(unittest.TestCase):
             overdue_ids,
             f"task {task_id} missing from /tasks/overdue — completed was likely stored as NULL",
         )
+
+    def test_old_schema_db_gets_status_and_activity_after_init(self):
+        """After init_db, old-schema databases must have status column and task_activity table."""
+        conn = connect(self.db_path)
+        try:
+            # Verify status column was added by setUp's create_app (which calls init_db)
+            col_names = [r["name"] for r in conn.execute("PRAGMA table_info(tasks)").fetchall()]
+            self.assertIn("status", col_names, "status column missing after upgrade")
+
+            table_row = conn.execute(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name='task_activity'"
+            ).fetchone()
+            self.assertIsNotNone(table_row, "task_activity table missing after upgrade")
+        finally:
+            conn.close()
+
+
+class OldSchemaActivityRegressionTestCase(unittest.TestCase):
+    """Tests against a pre-lifecycle database (no status column, no task_activity table).
+
+    Simulates the upgrade path: seed the old schema with completed=1 rows,
+    run init_db, and verify the migration results.
+    """
+
+    # Old schema: no status column, no task_activity table, completed nullable.
+    _OLD_SCHEMA = (
+        "CREATE TABLE IF NOT EXISTS users "
+        "    (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL);"
+        "CREATE TABLE IF NOT EXISTS tasks ("
+        "    id INTEGER PRIMARY KEY AUTOINCREMENT,"
+        "    title TEXT NOT NULL,"
+        "    description TEXT NOT NULL DEFAULT '',"
+        "    tags TEXT NOT NULL DEFAULT '',"
+        "    due_date TEXT,"
+        "    assignee_id INTEGER REFERENCES users (id),"
+        "    completed INTEGER NOT NULL DEFAULT 0,"
+        "    created_at TEXT NOT NULL"
+        ");"
+    )
+
+    def setUp(self):
+        fd, self.db_path = tempfile.mkstemp(suffix=".sqlite")
+        os.close(fd)
+        # Seed the OLD schema with some data
+        conn = connect(self.db_path)
+        try:
+            conn.executescript(self._OLD_SCHEMA)
+            with conn:
+                conn.execute(
+                    "INSERT INTO tasks (title, completed, created_at) VALUES (?, ?, ?)",
+                    ("done-before-upgrade", 1, "2024-01-01T00:00:00+00:00"),
+                )
+                conn.execute(
+                    "INSERT INTO tasks (title, completed, created_at) VALUES (?, ?, ?)",
+                    ("open-before-upgrade", 0, "2024-01-01T00:00:00+00:00"),
+                )
+        finally:
+            conn.close()
+        # Upgrade via create_app (which calls init_db)
+        self.app = create_app({"TESTING": True, "DATABASE": self.db_path})
+        self.client = self.app.test_client()
+
+    def tearDown(self):
+        os.remove(self.db_path)
+
+    def test_task_activity_table_exists_after_upgrade(self):
+        """task_activity table must be created when upgrading from the old schema."""
+        conn = connect(self.db_path)
+        try:
+            row = conn.execute(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name='task_activity'"
+            ).fetchone()
+        finally:
+            conn.close()
+        self.assertIsNotNone(row, "task_activity table missing after upgrade")
+
+    def test_status_column_exists_after_upgrade(self):
+        """status column must be added to tasks when upgrading from old schema."""
+        conn = connect(self.db_path)
+        try:
+            col_names = [r["name"] for r in conn.execute("PRAGMA table_info(tasks)").fetchall()]
+        finally:
+            conn.close()
+        self.assertIn("status", col_names, "status column missing after upgrade")
+
+    def test_completed_rows_backfilled_to_status_completed(self):
+        """Rows with completed=1 must be backfilled to status='completed' after upgrade."""
+        conn = connect(self.db_path)
+        try:
+            row = conn.execute(
+                "SELECT status FROM tasks WHERE title='done-before-upgrade'"
+            ).fetchone()
+        finally:
+            conn.close()
+        self.assertEqual(row["status"], "completed",
+                         "completed=1 row was not backfilled to status='completed'")
+
+    def test_open_rows_have_status_open_after_upgrade(self):
+        """Rows with completed=0 must retain status='open' after upgrade."""
+        conn = connect(self.db_path)
+        try:
+            row = conn.execute(
+                "SELECT status FROM tasks WHERE title='open-before-upgrade'"
+            ).fetchone()
+        finally:
+            conn.close()
+        self.assertEqual(row["status"], "open",
+                         "completed=0 row should have status='open' after upgrade")
+
+    def test_new_tasks_work_on_upgraded_database(self):
+        """POST /tasks must work normally on an upgraded database."""
+        r = self.client.post("/tasks", json={"title": "post-upgrade task"})
+        self.assertEqual(r.status_code, 201, r.get_json())
+        task = r.get_json()
+        self.assertFalse(task["completed"])
 
 
 class UsersEndpointTestCase(unittest.TestCase):
