@@ -162,13 +162,16 @@ Theme 1 (Explore, Fix, and Build). The starter, everything up to the `pre-bob-ba
 generated with Claude Code (Anthropic). It deliberately contained one seeded defect and an
 unimplemented tag-filter feature.
 
-Everything after that tag was done in an IBM Bob session. Bob explored the code, diagnosed and
-fixed the defect (including databases created before the fix), built the tag filter, wrote the
-regression tests, created the project tooling under `.bob/`, reviewed the change set with subagents
-and a custom reviewer mode, and updated this documentation. Every commit Bob made says so in its
-message ("Generated-by: IBM Bob").
+All code changes after that tag were made in IBM Bob, first in Bob Shell and then in Bob IDE. Bob
+explored the code, diagnosed and fixed the defect (including databases created before the fix),
+built the tag filter, wrote the regression tests, created the project tooling under `.bob/` (skills,
+a command, a custom reviewer mode and a hook), reviewed the change set with subagents, the custom
+mode and the IDE's built-in `/review`, fixed what those reviews found, and updated this
+documentation. Every commit Bob made says so in its message ("Generated-by: IBM Bob").
 
-At the participant's direction, Claude Code operated that session through Bob Shell's Agent Client
-Protocol interface. It wrote the prompts, approved or denied tool calls by a fixed policy, and
-checked each stage independently. Its follow-up prompts reported observed failures, not fixes. The
-prompts, Bob's answers and the Bob task ids are in [`bob_sessions/`](bob_sessions/README.md).
+At the participant's direction, Claude Code operated both sessions: Bob Shell through its Agent
+Client Protocol interface, and Bob IDE through Windows UI automation. It wrote the prompts, handled
+Bob's approval requests, and checked each stage independently. Its follow-up prompts reported
+observed failures, not fixes. Claude Code also wrote this provenance section and the
+[`bob_sessions/`](bob_sessions/README.md) records, which hold the prompts, Bob's answers and the
+Bob task ids.

@@ -33,3 +33,33 @@ How they were produced:
 | [14](14-S9c-legacy-followup.md) | Stage 9c - follow-up on an observed existing-database failure | `72776e99c6aefa41cf6e9d26c43952dc` | agent | 116.7 |
 | [15](15-S10-docs.md) | Stage 10 - documentation | `72776e99c6aefa41cf6e9d26c43952dc` | agent | 148.8 |
 | [16](16-S10b-docs-followup.md) | Stage 10b - follow-up on a README contradiction | `72776e99c6aefa41cf6e9d26c43952dc` | agent | 43.1 |
+
+## IBM Bob IDE session
+
+A second session ran in IBM Bob IDE 2.2.1 on 2026-10-06 (UTC), on the same branch.
+
+- Claude Code operated the IDE at the participant's direction through Windows UI automation
+  (window screenshots, clicks and pasted text). It opened this repository, started the built-in
+  review, chose the mode for each task and typed the prompts below. The participant had set Bob's
+  permissions to auto-approve; for the approval prompts that still appeared, Claude Code read each
+  pending request and approved it only if it stayed inside this repository and made no network
+  call or push.
+- The review was run against `origin/main` (the baseline) with `bob_sessions/**` excluded, so it
+  covered Bob's own changes.
+- The files were exported with Bob's own "Export Current Task" command; local paths are redacted.
+- "Bob cost" is the per-task figure the IDE shows next to each task.
+- The two IBM i mode answers are explorations of a possible port and integration. Nothing in them
+  was applied or verified, and they may contain mistakes.
+
+| # | IDE task | Bob task id | Mode | Bob cost | Commit |
+|---|---|---|---|---|---|
+| [17](17-ide-review.md) | Built-in `/review` (Review Code Changes workflow, findings panel), then fixes for its four findings | `3be51de56aa5997e63a4293cc2582ba4` | Agent (`/review`) | 3.67 | `ebfcdbf` |
+| [18](18-ide-reviewer-mode.md) | Review of that fix in the custom TaskFlow Reviewer mode, then the fix for the one problem it found | `ee41fc82eab0bff7d8d8a18499d415e0` | TaskFlow Reviewer, then Agent | 0.75 | `031736a` |
+| [19](19-ide-plan-deploy.md) | Deployment plan for a free hosting tier (plan file left uncommitted for the deployment step) | `9377c3f147de8f8db9633df6f7148d82` | Plan | 0.18 | - |
+| [20](20-ide-ask-explain.md) | Plain-language explanation of the defect and fixes for the demo | `e797c1b93a9bd78bdfc63191ba941ba2` | Ask | 0.15 | - |
+| [21](21-ide-ibmi-database.md) | Exploration: what would change to run the SQL on Db2 for i (not verified, not applied) | `acb21dff36766aeb8c3197ee02c7698d` | IBM i Database | 0.12 | - |
+| [22](22-ide-ibmi-developer.md) | Exploration: calling the API from IBM i with SQL HTTP functions and RPG (not verified) | `ca044122e8cdeb353b069cfe684866ea` | IBM i Developer | 0.19 | - |
+| [23](23-ide-configure-hooks.md) | `/configure-hooks`: PostToolUse hook that runs the regression check after Python edits | `eed39f58e868bbd85d73b88bf46e4cd7` | Agent (`/configure-hooks`) | 1.48 | `c1a483c` |
+
+Screenshots: [review setup](screenshots/ide-review-setup.png) (14 files against `origin/main`),
+[review summary and findings panel](screenshots/ide-review-summary.png).
