@@ -140,6 +140,114 @@ Each test runs against its own temporary SQLite database; there is no shared sta
 The suite covers task creation, listing, overdue detection, tag filtering (exact match,
 combined filters, edge cases), schema migration, and existing-database upgrade behaviour.
 
+A smoke test script (`smoke_test.py`) exercises the full API against a running server:
+
+```bash
+# Against the local dev server
+python smoke_test.py
+
+# Against a deployed instance
+python smoke_test.py --base-url https://<username>.pythonanywhere.com
+```
+
+Exit code is 0 if all checks pass, 1 otherwise.
+
+## Deploying to PythonAnywhere (free tier)
+
+PythonAnywhere provides persistent disk and WSGI hosting configured through its web UI —
+no long-running processes needed.
+
+### First deploy
+
+**1. Open a Bash console on PythonAnywhere and clone the repo:**
+
+```bash
+git clone https://github.com/<your-org>/taskflow-bob.git ~/taskflow
+```
+
+**2. Create a virtualenv and install dependencies:**
+
+```bash
+cd ~/taskflow
+python3.11 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+```
+
+**3. Create the data directory** (outside the source tree so it survives updates):
+
+```bash
+mkdir -p ~/taskflow-data
+```
+
+**4. Configure the web app in the PythonAnywhere dashboard:**
+
+- Go to **Web** → **Add a new web app** → **Manual configuration** → Python 3.11.
+- Set **Source code** to `/home/<username>/taskflow`.
+- Set **Virtualenv** to `/home/<username>/taskflow/.venv`.
+
+**5. Set the database environment variable:**
+
+In the **Web** tab, scroll to **Environment variables** and add:
+
+| Variable | Value |
+|---|---|
+| `TASKFLOW_DATABASE` | `/home/<username>/taskflow-data/taskflow.sqlite` |
+
+Replace `<username>` with your PythonAnywhere username.
+
+**6. Paste the WSGI file contents:**
+
+Click **WSGI configuration file** to open the editor.  Replace the entire contents with:
+
+```python
+import sys
+import os
+
+# Add the source tree to the Python path
+sys.path.insert(0, '/home/<username>/taskflow')
+
+# Point the database at persistent storage outside the source tree
+os.environ.setdefault(
+    'TASKFLOW_DATABASE',
+    '/home/<username>/taskflow-data/taskflow.sqlite',
+)
+
+from wsgi import application  # noqa: E402  (must come after sys.path modification)
+```
+
+**7. Click Reload** in the Web tab.
+
+**8. Verify** with the smoke test:
+
+```bash
+python ~/taskflow/smoke_test.py --base-url https://<username>.pythonanywhere.com
+```
+
+### Updating after a git pull
+
+```bash
+cd ~/taskflow
+git pull
+# Reload the web app in the PythonAnywhere dashboard (Web → Reload)
+```
+
+No migration is needed unless the database schema changed.  If it did, delete the SQLite
+file and let the app recreate it:
+
+```bash
+rm ~/taskflow-data/taskflow.sqlite
+# Then reload the web app
+```
+
+### Health check
+
+`GET /health` returns `{"status": "ok"}` with HTTP 200.  Use it to verify the process is alive:
+
+```bash
+curl https://<username>.pythonanywhere.com/health
+```
+
 ## Project layout
 
 ```text
