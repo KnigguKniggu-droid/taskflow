@@ -82,7 +82,9 @@ def run_smoke_tests():
         alice = r.get_json()
 
         r2 = client.post("/users", json={"name": "Bob"})
-        check("POST /users (second user) → 201", r2.status_code == 201)
+        ok = check("POST /users (second user) → 201", r2.status_code == 201, f"status={r2.status_code}")
+        if not ok:
+            return
         bob = r2.get_json()
 
         # -- POST /tasks -------------------------------------------------------
@@ -105,7 +107,9 @@ def run_smoke_tests():
             "due_date": (date.today() + timedelta(days=30)).isoformat(),
             "assignee_id": bob["id"],
         })
-        check("POST /tasks (future task) → 201", r.status_code == 201)
+        ok = check("POST /tasks (future task) → 201", r.status_code == 201, f"status={r.status_code}")
+        if not ok:
+            return
         task_fe = r.get_json()
 
         r = client.post("/tasks", json={
@@ -113,7 +117,9 @@ def run_smoke_tests():
             "tags": ["backend"],
             "assignee_id": bob["id"],
         })
-        check("POST /tasks (no due_date) → 201", r.status_code == 201)
+        ok = check("POST /tasks (no due_date) → 201", r.status_code == 201, f"status={r.status_code}")
+        if not ok:
+            return
         task_shared = r.get_json()
 
         # -- GET /tasks/<id> ---------------------------------------------------

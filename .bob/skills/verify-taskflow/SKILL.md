@@ -18,8 +18,8 @@ two git refs (default: `pre-bob-baseline` → `HEAD`).
 ## Step 1 — Collect the diff
 
 ```powershell
-& "C:\Program Files\Git\bin\git.exe" diff <base> HEAD --stat
-& "C:\Program Files\Git\bin\git.exe" diff <base> HEAD -- app/db.py app/routes.py app/services.py tests/test_tasks.py
+git diff <base> HEAD --stat
+git diff <base> HEAD -- app/db.py app/routes.py app/services.py tests/test_tasks.py
 ```
 
 Read every changed source file with `read_file` **before** spawning subagents so
@@ -94,8 +94,8 @@ before proceeding — do not suppress or skip tests.
 Stage all accepted fixes **plus** this skill file:
 
 ```powershell
-& "C:\Program Files\Git\bin\git.exe" add app/ tests/ .bob/skills/verify-taskflow/SKILL.md
-& "C:\Program Files\Git\bin\git.exe" commit -m "<subject line>
+git add app/ tests/ .bob/skills/verify-taskflow/SKILL.md
+git commit -m "<subject line>
 
 <body: one sentence per fix>
 

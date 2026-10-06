@@ -253,6 +253,26 @@ class TagFilterTestCase(unittest.TestCase):
         r = self.client.get("/tasks", query_string={"tag": "has space"})
         self.assertEqual(r.status_code, 400, r.get_json())
 
+    def test_very_long_invalid_tag_error_is_truncated(self):
+        """A very long invalid tag value must not be reflected verbatim in the error.
+
+        parse_tag_param truncates the displayed value to 50 characters so an
+        attacker cannot inflate the error response body arbitrarily.
+        """
+        long_tag = "X" * 200  # 200-char invalid tag (uppercase, > 32 chars)
+        r = self.client.get("/tasks", query_string={"tag": long_tag})
+        self.assertEqual(r.status_code, 400, r.get_json())
+        error_msg = r.get_json()["error"]
+        # The raw 200-char string must not appear verbatim in the response.
+        self.assertNotIn(long_tag, error_msg, "full 200-char input was reflected in error")
+        # The displayed excerpt must be at most 50 chars (plus surrounding quotes).
+        # Find the quoted excerpt between the first pair of ' characters.
+        import re as _re
+        match = _re.search(r"'([^']*)'", error_msg)
+        if match:
+            self.assertLessEqual(len(match.group(1)), 50,
+                                 f"reflected excerpt is longer than 50 chars: {match.group(1)!r}")
+
     def test_tag_param_is_case_insensitive(self):
         """tag=Backend (uppercase) normalises to 'backend' and matches."""
         t = self._create_task(tags=["backend"])

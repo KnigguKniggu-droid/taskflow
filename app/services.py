@@ -203,8 +203,9 @@ def parse_tag_param(raw):
     if not tag:
         return None
     if not TAG_PATTERN.fullmatch(tag):
+        display = raw.strip()[:50]
         raise ValidationError(
-            f"invalid tag {raw.strip()!r}: a tag starts with a letter or digit and uses "
+            f"invalid tag {display!r}: a tag starts with a letter or digit and uses "
             "only a-z, 0-9, '-' or '_' (at most 32 characters)"
         )
     return tag
