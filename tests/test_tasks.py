@@ -98,6 +98,35 @@ class TaskApiTestCase(unittest.TestCase):
         self.assertFalse(fetched["completed"])
         self.assertIs(fetched["completed"], False)
 
+    def test_overdue_includes_in_progress_and_blocked_tasks(self):
+        """GET /tasks/overdue must include past-due tasks regardless of status.
+
+        A task with status 'in_progress' or 'blocked' that is past its due date
+        is still overdue — only 'completed' tasks are excluded.  This guards
+        against a regression where the query uses ``status = 'open'`` instead of
+        ``status != 'completed'``, which would silently drop in_progress and
+        blocked tasks from the overdue list.
+        """
+        past = (date.today() - timedelta(days=1)).isoformat()
+
+        # Create tasks in each non-completed status with a past due date.
+        t_open        = self.create_task(due_date=past)
+        t_in_progress = self.create_task(due_date=past)
+        t_blocked     = self.create_task(due_date=past)
+
+        # Advance statuses via PATCH.
+        r1 = self.client.patch(f"/tasks/{t_in_progress['id']}", json={"status": "in_progress"})
+        self.assertEqual(r1.status_code, 200, r1.get_json())
+        r2 = self.client.patch(f"/tasks/{t_blocked['id']}", json={"status": "blocked"})
+        self.assertEqual(r2.status_code, 200, r2.get_json())
+
+        overdue = self.overdue_ids()
+        self.assertIn(t_open["id"],        overdue, "open past-due task missing from overdue list")
+        self.assertIn(t_in_progress["id"], overdue,
+                      "in_progress past-due task missing from overdue list")
+        self.assertIn(t_blocked["id"],     overdue,
+                      "blocked past-due task missing from overdue list")
+
 
 class TagFilterTestCase(unittest.TestCase):
     """Tests for GET /tasks?tag=<tag> filtering."""
@@ -1097,6 +1126,63 @@ class StatusLifecycleTestCase(unittest.TestCase):
             self.patch_task(t["id"], {"status": "in_progress"})
             r = self.patch_task(t["id"], {"status": target})
             self.assertEqual(r.status_code, 200, f"in_progress→{target}: {r.get_json()}")
+
+    def test_patch_status_completed_writes_completed_column_to_db(self):
+        """PATCH {"status":"completed"} must write completed=1 to the DB column.
+
+        The API response derives ``completed`` from ``status == 'completed'``
+        (via _task_to_dict), so an HTTP-only assertion cannot detect a bug
+        where the UPDATE omits the ``completed = 1`` clause.  This test reads
+        the raw SQLite column value to pin the write-path independently.
+        """
+        task = self.create_task()
+
+        r = self.patch_task(task["id"], {"status": "completed"})
+        self.assertEqual(r.status_code, 200, r.get_json())
+        self.assertEqual(r.get_json()["status"], "completed", r.get_json())
+
+        # Read the raw DB value — must be 1, not 0 or NULL.
+        conn = connect(self.db_path)
+        try:
+            row = conn.execute(
+                "SELECT completed FROM tasks WHERE id = ?", (task["id"],)
+            ).fetchone()
+        finally:
+            conn.close()
+
+        self.assertIsNotNone(row["completed"],
+                             "completed column is NULL after PATCH status=completed")
+        self.assertEqual(row["completed"], 1,
+                         f"completed column is {row['completed']!r} after PATCH status=completed, "
+                         "expected 1")
+
+    def test_patch_status_non_completed_writes_completed_zero_to_db(self):
+        """PATCH to a non-completed status must write completed=0 to the DB column.
+
+        Symmetrically guards the path where a task transitions away from
+        completed (e.g. completed → open): the completed column must be reset
+        to 0, not left as 1.
+        """
+        task = self.create_task()
+
+        # First complete the task, then reopen it.
+        self.patch_task(task["id"], {"status": "completed"})
+        r = self.patch_task(task["id"], {"status": "open"})
+        self.assertEqual(r.status_code, 200, r.get_json())
+        self.assertFalse(r.get_json()["completed"], r.get_json())
+
+        # The DB column must now be 0.
+        conn = connect(self.db_path)
+        try:
+            row = conn.execute(
+                "SELECT completed FROM tasks WHERE id = ?", (task["id"],)
+            ).fetchone()
+        finally:
+            conn.close()
+
+        self.assertEqual(row["completed"], 0,
+                         f"completed column is {row['completed']!r} after reopening task, "
+                         "expected 0")
 
     def test_blocked_to_all_valid_targets(self):
         for target in ("open", "in_progress", "completed"):
