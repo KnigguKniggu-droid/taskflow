@@ -58,16 +58,19 @@ async function loadTasks(params) {
     }
 
     // When a filter is active, derive stat-card counts from the fetched subset
-    // so the numbers match what the user sees.  Without a filter, use the
-    // authoritative server totals (loaded separately by loadStats).
+    // so the numbers match what the user sees.  Without a filter, fetch
+    // authoritative server totals directly — do NOT rely on callers to call
+    // loadStats() separately, because that races with and overwrites filtered
+    // counts when a filter is active.
     const isFiltered = Object.keys(params).length > 0;
     if (isFiltered) {
       render.renderFilteredStats(data.tasks);
       document.getElementById('stats-note').textContent =
         'Counts reflect the current filter, not all tasks.';
     } else {
-      // Global stats will be (or already are) loaded by loadStats(); clear note.
       document.getElementById('stats-note').textContent = '';
+      // Fetch global totals now that we know no filter is active.
+      loadStats();
     }
 
     // Update document.title to reflect active filter
@@ -142,7 +145,7 @@ function _wireCompleteButton(detailBody, taskId, detailDialog, detailError) {
     try {
       await api.post(`/tasks/${taskId}/complete`, {});
       modal.closeModal(detailDialog);
-      await Promise.all([loadStats(), loadTasks(currentFilter)]);
+      await loadTasks(currentFilter);
     } catch (err) {
       detailError.textContent = err.message;
       detailError.hidden = false;
@@ -175,7 +178,7 @@ async function submitCreateTask() {
     const createDialog = document.getElementById('modal-create-task');
     modal.closeModal(createDialog);
     document.getElementById('form-create-task').reset();
-    await Promise.all([loadStats(), loadTasks(currentFilter)]);
+    await loadTasks(currentFilter);
   } catch (err) {
     errorEl.textContent = err.message;
     errorEl.hidden = false;
@@ -215,7 +218,7 @@ async function submitUpdateTask(taskId) {
     render.renderEditForm(task, usersMap);
 
     _wireCompleteButton(detailBody, taskId, detailDialog, detailError);
-    await Promise.all([loadStats(), loadTasks(currentFilter)]);
+    await loadTasks(currentFilter);
   } catch (err) {
     errorEl.textContent = err.message;
     errorEl.hidden = false;
@@ -233,17 +236,13 @@ document.addEventListener('DOMContentLoaded', () => {
     currentFilter = {};
     if (assigneeId) currentFilter.assignee_id = assigneeId;
     if (tag) currentFilter.tag = tag;
-    loadTasks(currentFilter)
-      .then(() => loadStats())
-      .catch(err => showGlobalError(err.message));
+    loadTasks(currentFilter).catch(err => showGlobalError(err.message));
   });
 
   document.getElementById('btn-clear-filter').addEventListener('click', () => {
     document.getElementById('filter-form').reset();
     currentFilter = {};
-    loadTasks({})
-      .then(() => loadStats())
-      .catch(err => showGlobalError(err.message));
+    loadTasks({}).catch(err => showGlobalError(err.message));
   });
 
   // Global error banner
@@ -299,9 +298,9 @@ document.addEventListener('DOMContentLoaded', () => {
     await submitUpdateTask(currentDetailTaskId);
   });
 
-  // Initial load
+  // Initial load — loadTasks({}) calls loadStats() internally (no filter active).
   loadUsers()
-    .then(() => Promise.all([loadStats(), loadTasks({})]))
+    .then(() => loadTasks({}))
     .catch(err => showGlobalError(err.message));
 });
 

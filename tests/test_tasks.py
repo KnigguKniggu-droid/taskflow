@@ -713,5 +713,79 @@ class UpdateTaskTestCase(unittest.TestCase):
         self.assertFalse(r.get_json()["completed"], r.get_json())
 
 
+class FilteredStatsConsistencyTestCase(unittest.TestCase):
+    """Guard the server contract that makes client-side filtered stat counts correct.
+
+    The UI derives summary counts (total/open/overdue/completed) from the task
+    list returned by GET /tasks?tag=…  It does this by reading each task's
+    ``completed`` and ``due_date`` fields.  This test verifies that those fields
+    are present and accurate on filtered results, reproducing the exact scenario
+    that exposed the stats-card/note disagreement bug:
+
+      4 tasks total (3 open, 1 overdue among open, 1 completed);
+      filter by tag "backend" → 2 tasks (1 overdue-open, 1 plain-open).
+
+    If the server ever omitted ``completed`` or ``due_date`` from filtered
+    responses, client-side counts would be wrong even with correct JS logic.
+    """
+
+    def setUp(self):
+        fd, self.db_path = tempfile.mkstemp(suffix=".sqlite")
+        os.close(fd)
+        self.app = create_app({"TESTING": True, "DATABASE": self.db_path})
+        self.client = self.app.test_client()
+
+    def tearDown(self):
+        os.remove(self.db_path)
+
+    def _post_task(self, **fields):
+        r = self.client.post("/tasks", json={"title": "T", **fields})
+        self.assertEqual(r.status_code, 201, r.get_json())
+        return r.get_json()
+
+    def test_filtered_task_list_carries_fields_needed_for_client_counts(self):
+        """Filtered GET /tasks response must carry completed and due_date so
+        the client can derive accurate per-filter summary counts."""
+        yesterday = (date.today() - timedelta(days=1)).isoformat()
+
+        # 4 tasks that mirror the reported scenario
+        t_overdue_backend = self._post_task(tags=["backend"], due_date=yesterday)
+        t_open_backend    = self._post_task(tags=["backend"])
+        t_open_other      = self._post_task(tags=["frontend"])
+        t_completed       = self._post_task(tags=["backend"])
+        r_complete = self.client.post(f"/tasks/{t_completed['id']}/complete")
+        self.assertEqual(r_complete.status_code, 200, r_complete.get_json())
+
+        # Filter by tag=backend → should return 3 tasks (overdue, open, completed)
+        r = self.client.get("/tasks?tag=backend")
+        self.assertEqual(r.status_code, 200, r.get_json())
+        tasks = r.get_json()["tasks"]
+        self.assertEqual(len(tasks), 3, tasks)
+
+        # Every task must carry the fields the client uses for counting
+        for t in tasks:
+            self.assertIn("completed", t, t)
+            self.assertIn("due_date",  t, t)
+
+        # Derive counts exactly as the client JS does
+        today_iso = date.today().isoformat()
+        client_total     = len(tasks)
+        client_open      = sum(1 for t in tasks if not t["completed"])
+        client_completed = sum(1 for t in tasks if t["completed"])
+        client_overdue   = sum(
+            1 for t in tasks
+            if not t["completed"] and t["due_date"] and t["due_date"] < today_iso
+        )
+
+        self.assertEqual(client_total,     3, tasks)
+        self.assertEqual(client_open,      2, tasks)
+        self.assertEqual(client_completed, 1, tasks)
+        self.assertEqual(client_overdue,   1, tasks)
+
+        # The untagged task must NOT appear in the filtered list
+        filtered_ids = {t["id"] for t in tasks}
+        self.assertNotIn(t_open_other["id"], filtered_ids, tasks)
+
+
 if __name__ == "__main__":
     unittest.main()
