@@ -28,6 +28,11 @@ def _json_body():
     return data
 
 
+@bp.get("/users")
+def list_users():
+    return jsonify({"users": services.list_users()})
+
+
 @bp.post("/users")
 def create_user():
     return jsonify(services.create_user(_json_body())), 201
@@ -43,6 +48,11 @@ def list_tasks():
     assignee_id = services.parse_id_param(request.args.get("assignee_id"), "assignee_id")
     tag = services.parse_tag_param(request.args.get("tag"))
     return jsonify({"tasks": services.list_tasks(assignee_id=assignee_id, tag=tag)})
+
+
+@bp.get("/tasks/stats")
+def get_task_stats():
+    return jsonify(services.get_task_stats(date.today()))
 
 
 @bp.get("/tasks/overdue")

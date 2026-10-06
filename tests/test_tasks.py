@@ -471,5 +471,95 @@ class OldSchemaRegressionTestCase(unittest.TestCase):
         )
 
 
+class UsersEndpointTestCase(unittest.TestCase):
+    def setUp(self):
+        fd, self.db_path = tempfile.mkstemp(suffix=".sqlite")
+        os.close(fd)
+        self.app = create_app({"TESTING": True, "DATABASE": self.db_path})
+        self.client = self.app.test_client()
+
+    def tearDown(self):
+        os.remove(self.db_path)
+
+    def create_user(self, name="Ada"):
+        response = self.client.post("/users", json={"name": name})
+        self.assertEqual(response.status_code, 201, response.get_json())
+        return response.get_json()
+
+    def test_empty_list(self):
+        response = self.client.get("/users")
+        self.assertEqual(response.status_code, 200, response.get_json())
+        self.assertEqual(response.get_json(), {"users": []})
+
+    def test_user_appears_after_create(self):
+        user = self.create_user("Ada")
+        response = self.client.get("/users")
+        self.assertEqual(response.status_code, 200, response.get_json())
+        self.assertIn(user, response.get_json()["users"])
+
+    def test_multiple_users_ordered_by_id(self):
+        u1 = self.create_user("Alice")
+        u2 = self.create_user("Bob")
+        u3 = self.create_user("Carol")
+        response = self.client.get("/users")
+        self.assertEqual(response.status_code, 200, response.get_json())
+        ids = [u["id"] for u in response.get_json()["users"]]
+        self.assertEqual(ids, sorted(ids), f"users not ordered by id: {ids}")
+        self.assertEqual(ids, [u1["id"], u2["id"], u3["id"]])
+
+
+class StatsEndpointTestCase(unittest.TestCase):
+    def setUp(self):
+        fd, self.db_path = tempfile.mkstemp(suffix=".sqlite")
+        os.close(fd)
+        self.app = create_app({"TESTING": True, "DATABASE": self.db_path})
+        self.client = self.app.test_client()
+
+    def tearDown(self):
+        os.remove(self.db_path)
+
+    def create_task(self, **fields):
+        response = self.client.post("/tasks", json={"title": "Task", **fields})
+        self.assertEqual(response.status_code, 201, response.get_json())
+        return response.get_json()
+
+    def get_stats(self):
+        response = self.client.get("/tasks/stats")
+        self.assertEqual(response.status_code, 200, response.get_json())
+        return response.get_json()
+
+    def test_zero_state(self):
+        self.assertEqual(
+            self.get_stats(),
+            {"total": 0, "open": 0, "completed": 0, "overdue": 0},
+        )
+
+    def test_counts_after_creates(self):
+        self.create_task()
+        self.create_task()
+        stats = self.get_stats()
+        self.assertEqual(stats["total"], 2, stats)
+        self.assertEqual(stats["open"], 2, stats)
+        self.assertEqual(stats["completed"], 0, stats)
+        self.assertEqual(stats["overdue"], 0, stats)
+
+    def test_completed_count(self):
+        task = self.create_task()
+        self.client.post(f"/tasks/{task['id']}/complete")
+        stats = self.get_stats()
+        self.assertEqual(stats["completed"], 1, stats)
+        self.assertEqual(stats["open"], 0, stats)
+
+    def test_overdue_count(self):
+        yesterday = (date.today() - timedelta(days=1)).isoformat()
+        task = self.create_task(due_date=yesterday)
+        stats = self.get_stats()
+        self.assertEqual(stats["overdue"], 1, stats)
+        # Completing the task removes it from the overdue count.
+        self.client.post(f"/tasks/{task['id']}/complete")
+        stats_after = self.get_stats()
+        self.assertEqual(stats_after["overdue"], 0, stats_after)
+
+
 if __name__ == "__main__":
     unittest.main()

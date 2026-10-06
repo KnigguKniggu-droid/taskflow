@@ -43,6 +43,36 @@ def create_user(data):
     return {"id": cursor.lastrowid, "name": name}
 
 
+def list_users():
+    """Return all users ordered by id."""
+    rows = get_db().execute("SELECT id, name FROM users ORDER BY id").fetchall()
+    return [dict(row) for row in rows]
+
+
+def get_task_stats(today):
+    """Return task counts: total, open, completed, overdue.
+
+    ``today`` is a ``datetime.date`` used to determine the overdue cutoff.
+    A task is overdue when it is open, has a due_date, and that date is before
+    ``today``.
+    """
+    row = get_db().execute(
+        "SELECT"
+        " COUNT(*) AS total,"
+        " SUM(CASE WHEN completed = 0 THEN 1 ELSE 0 END) AS open,"
+        " SUM(CASE WHEN completed = 1 THEN 1 ELSE 0 END) AS completed,"
+        " SUM(CASE WHEN completed = 0 AND due_date IS NOT NULL AND due_date < ? THEN 1 ELSE 0 END) AS overdue"
+        " FROM tasks",
+        (today.isoformat(),),
+    ).fetchone()
+    return {
+        "total": row["total"] or 0,
+        "open": row["open"] or 0,
+        "completed": row["completed"] or 0,
+        "overdue": row["overdue"] or 0,
+    }
+
+
 def create_task(data):
     """Validate a request payload, store the task and return it."""
     _reject_unknown_fields(data, TASK_FIELDS)
