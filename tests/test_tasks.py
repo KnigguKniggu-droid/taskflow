@@ -269,9 +269,9 @@ class TagFilterTestCase(unittest.TestCase):
         # Find the quoted excerpt between the first pair of ' characters.
         import re as _re
         match = _re.search(r"'([^']*)'", error_msg)
-        if match:
-            self.assertLessEqual(len(match.group(1)), 50,
-                                 f"reflected excerpt is longer than 50 chars: {match.group(1)!r}")
+        self.assertIsNotNone(match, f"no quoted excerpt found in error message: {error_msg!r}")
+        self.assertLessEqual(len(match.group(1)), 50,
+                             f"reflected excerpt is longer than 50 chars: {match.group(1)!r}")
 
     def test_tag_param_is_case_insensitive(self):
         """tag=Backend (uppercase) normalises to 'backend' and matches."""
