@@ -63,7 +63,44 @@ function buildQS(params) {
 }
 
 async function openTaskDetail(taskId, returnEl) {
-  // TODO M5
+  const detailDialog = document.getElementById('modal-task-detail');
+  const detailTitle  = document.getElementById('detail-title');
+  const detailBody   = document.getElementById('detail-body');
+  const detailError  = document.getElementById('detail-error');
+
+  // Clear previous content
+  detailTitle.textContent = '…';
+  detailBody.innerHTML    = '';
+  detailError.hidden      = true;
+
+  modal.openModal(detailDialog, returnEl);
+
+  try {
+    const task = await api.get(`/tasks/${taskId}`);
+    const { html, title } = render.renderTaskDetail(task, usersMap);
+    detailTitle.textContent = title;
+    detailBody.innerHTML    = html;
+
+    // Wire "Mark Complete" button if present
+    const completeBtn = detailBody.querySelector('#btn-complete-task');
+    if (completeBtn) {
+      completeBtn.addEventListener('click', async () => {
+        completeBtn.disabled = true;
+        try {
+          await api.post(`/tasks/${taskId}/complete`, {});
+          modal.closeModal(detailDialog);
+          await Promise.all([loadStats(), loadTasks(currentFilter)]);
+        } catch (err) {
+          detailError.textContent = err.message;
+          detailError.hidden = false;
+          completeBtn.disabled = false;
+        }
+      });
+    }
+  } catch (err) {
+    detailError.textContent = err.message;
+    detailError.hidden = false;
+  }
 }
 
 async function submitCreateTask() {

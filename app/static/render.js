@@ -92,5 +92,94 @@ export function renderTask(task, usersMap) {
   return li;
 }
 
-export function renderTaskDetail(task, usersMap) { /* TODO M5 */ }
+export function renderTaskDetail(task, usersMap) {
+  const today = todayISO();
+  const isCompleted = task.completed;
+  const isOverdue = !isCompleted && task.due_date && task.due_date < today;
+
+  // Status badge
+  let statusBadge;
+  if (isCompleted) {
+    statusBadge = '<span class="badge-completed">Completed</span>';
+  } else if (isOverdue) {
+    statusBadge = '<span class="badge-overdue">Overdue</span>';
+  } else {
+    statusBadge = '<span class="badge-open">Open</span>';
+  }
+
+  // Description
+  const descHtml = task.description
+    ? escHtml(task.description)
+    : '<span class="muted">—</span>';
+
+  // Tags
+  let tagsHtml;
+  if (task.tags && task.tags.length > 0) {
+    tagsHtml = task.tags.map(t => `<span class="tag">${escHtml(t)}</span>`).join(' ');
+  } else {
+    tagsHtml = '<span class="muted">None</span>';
+  }
+
+  // Due date
+  let dueDateHtml;
+  if (task.due_date) {
+    const formatted = fmtDate(task.due_date);
+    dueDateHtml = isOverdue
+      ? `<span class="overdue-date">${escHtml(formatted)}</span>`
+      : escHtml(formatted);
+  } else {
+    dueDateHtml = '<span class="muted">None</span>';
+  }
+
+  // Assignee
+  const assigneeName = (task.assignee_id && usersMap.get(task.assignee_id))
+    ? escHtml(usersMap.get(task.assignee_id))
+    : '<span class="muted">Unassigned</span>';
+
+  // Created date
+  const createdDate = escHtml(
+    new Date(task.created_at).toLocaleDateString(undefined, {
+      year: 'numeric', month: 'short', day: 'numeric',
+    })
+  );
+
+  // Complete button or completed badge
+  const actionHtml = isCompleted
+    ? '<span class="badge-completed">Completed</span>'
+    : `<button id="btn-complete-task" class="btn-complete" data-task-id="${task.id}">Mark Complete</button>`;
+
+  const html = `
+    <dl class="task-detail-fields">
+      <dt>Status</dt>
+      <dd>${statusBadge}</dd>
+
+      <dt>Description</dt>
+      <dd>${descHtml}</dd>
+
+      <dt>Tags</dt>
+      <dd>${tagsHtml}</dd>
+
+      <dt>Due Date</dt>
+      <dd>${dueDateHtml}</dd>
+
+      <dt>Assignee</dt>
+      <dd>${assigneeName}</dd>
+
+      <dt>Created</dt>
+      <dd>${createdDate}</dd>
+    </dl>
+    <div class="detail-actions">${actionHtml}</div>
+  `;
+
+  return { html, title: task.title };
+}
+
+function escHtml(str) {
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
 export function renderEditForm(task, usersMap)   { /* TODO M6 */ }
