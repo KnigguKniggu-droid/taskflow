@@ -189,3 +189,21 @@ so every test is fully isolated with no shared state.
 | Filter tasks by assignee (`?assignee_id=`) | Implemented |
 | Create users                          | Implemented     |
 | Filter tasks by tag (`?tag=<tag>`)    | Implemented     |
+
+---
+
+## Hooks
+
+A workspace `PostToolUse` hook (`.bob/hooks/taskflow-regression.mjs`) runs the
+regression-check script automatically after Bob edits any Python file under
+`app/` or `tests/`. It fires after `write_file`, `apply_diff`,
+`search_and_replace`, or `insert_content`, checks that the written path matches
+`^(app|tests)/.*\.py$`, and then executes:
+
+```
+.venv\Scripts\python.exe .bob\skills\taskflow-regression-check\regression_check.py
+```
+
+The script's output (pass/fail counts for all smoke-test checks) is surfaced as
+model context alongside the tool result. Configuration lives in
+`.bob/settings.json` (workspace scope, timeout 60 s).
