@@ -63,3 +63,32 @@ A second session ran in IBM Bob IDE 2.2.1 on 2026-10-06 (UTC), on the same branc
 
 Screenshots: [review setup](screenshots/ide-review-setup.png) (14 files against `origin/main`),
 [review summary and findings panel](screenshots/ide-review-summary.png).
+
+## IBM Bob IDE session 2: building the product
+
+A third Bob session ran in IBM Bob IDE on 2026-10-06 (UTC) after an outside review judged the
+first version too small to be a credible product. Bob turned the API into a usable team task board:
+a web UI, a task lifecycle with an activity history and a safe upgrade path for existing databases,
+a deployable release with CI, and an adversarial release review.
+
+- Claude Code operated the IDE the same way as before (UI automation; approvals read from Bob's
+  task store first). It chose answers to Bob's design questions where Bob asked (recorded in each
+  file), and its follow-up prompts reported observed failures from its own browser, mutation,
+  upgrade and concurrency checks, never the fix.
+- One mistake is recorded rather than hidden: in task 24 Claude Code first mis-clicked Bob's option
+  to drop task editing, then corrected it in its next message.
+- File 27 was rendered from Bob's local task store because the IDE export was not run for that task.
+
+| # | IDE task | Bob task id | Mode | Commits |
+|---|---|---|---|---|
+| [24](24-ide-ui-plan-build.md) | Web UI: Plan mode design (taskboard-ui-plan.md), then Agent build in 7 milestones, its own /verify-taskflow review, and fixes for failures found in Claude's browser checks | `6c14124e69b1d66f0044b2b8b4491cc8` | Plan, then Agent | `5e461ad` `2524323` `2cbf953` `a31aa0f` `4306e9d` `16a708a` `8ddd831` `a1f56ab` `7f152a1` `a8c8460` `69c17a8` |
+| [25](25-ide-lifecycle-plan.md) | Lifecycle and activity history: plan with three assessment subagents (migration, API compatibility, tests) | `e42def3f5f346aeb7b40477f32f3c61d` | Plan | - (plan committed in `66e06c1`) |
+| [26](26-ide-lifecycle-build.md) | Lifecycle and activity history: Agent build in 5 milestones plus its own /verify-taskflow review | `0cd085f1cc831effae8819967a28033c` | Agent | `66e06c1` `3eafd01` `4e9931c` `5b150a2` `a44864c` `36ac3b2` `1ca5715` |
+| [27](27-ide-lifecycle-mutation-gaps.md) | Tests for two behaviours Claude's mutation check found unpinned | `dfed5e5d0d3214fa92f6863cbe4e9af8` | Agent | `ac7341f` |
+| [28](28-ide-lifecycle-ui-fixes.md) | Fixes for four UI problems found in Claude's browser check | `a535e3f639eb9f14ec2b0f9f3a97b1a7` | Agent | `d0ceec8` |
+| [29](29-ide-release-ci.md) | Release: release plan, WSGI entry point, health endpoint, smoke test, PythonAnywhere docs, GitHub Actions CI | `33a059478862e00980eb9ea5791ba7e4` | Agent | `41591ed` `6094482` `6211791` |
+| [30](30-ide-adversarial-review.md) | Adversarial release-readiness review with five subagent lenses; six defects fixed | `d1c6d047633ceda52365b6e410e6beba` | Agent | `7b6cddc` |
+| [31](31-ide-race-fix.md) | Follow-up on an observed concurrency failure (duplicate activity rows); fixed with conditional updates | `fbb3a8b1e92f66f6e510fa1c5e5198e7` | Agent | `8f46140` |
+
+Screenshots of the result: [task board](../docs/screenshots/taskboard-ui.jpg),
+[lifecycle statuses](../docs/screenshots/taskboard-lifecycle.jpg).
