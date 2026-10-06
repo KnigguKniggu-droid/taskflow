@@ -60,7 +60,14 @@ header h1 {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
   gap: var(--space-md);
-  margin-bottom: var(--space-lg);
+  margin-bottom: var(--space-xs);
+}
+
+#stats-note {
+  font-size: 0.8rem;
+  color: var(--color-muted);
+  margin: 0 0 var(--space-lg) 0;
+  min-height: 1.4em; /* reserve space so layout doesn't jump */
 }
 
 #stats dl {
@@ -123,6 +130,26 @@ header h1 {
   padding: var(--space-md);
   margin-bottom: var(--space-sm);
   background: var(--color-bg);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+}
+
+/* First row: title */
+.task-row-title {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+}
+
+/* Second row: badge, tags, due date, assignee — smaller metadata */
+.task-row-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-xs) var(--space-sm);
+  font-size: 0.85rem;
+  color: var(--color-muted);
 }
 
 /* Loading spinner via CSS on the list container */

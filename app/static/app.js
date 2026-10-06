@@ -57,6 +57,19 @@ async function loadTasks(params) {
       }
     }
 
+    // When a filter is active, derive stat-card counts from the fetched subset
+    // so the numbers match what the user sees.  Without a filter, use the
+    // authoritative server totals (loaded separately by loadStats).
+    const isFiltered = Object.keys(params).length > 0;
+    if (isFiltered) {
+      render.renderFilteredStats(data.tasks);
+      document.getElementById('stats-note').textContent =
+        'Counts reflect the current filter, not all tasks.';
+    } else {
+      // Global stats will be (or already are) loaded by loadStats(); clear note.
+      document.getElementById('stats-note').textContent = '';
+    }
+
     // Update document.title to reflect active filter
     const assigneeId = params.assignee_id;
     const tag = params.tag;
@@ -198,6 +211,7 @@ async function submitUpdateTask(taskId) {
     document.getElementById('detail-edit-form').hidden = true;
     detailBody.hidden = false;
     document.getElementById('btn-edit-task').hidden = false;
+    document.getElementById('btn-close-detail').hidden = false;  // restore Close after save
     render.renderEditForm(task, usersMap);
 
     _wireCompleteButton(detailBody, taskId, detailDialog, detailError);
@@ -267,6 +281,7 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('btn-edit-task').addEventListener('click', () => {
     document.getElementById('detail-body').hidden      = true;
     document.getElementById('btn-edit-task').hidden    = true;
+    document.getElementById('btn-close-detail').hidden = true;   // hide Close while editing
     document.getElementById('detail-edit-form').hidden = false;
     document.getElementById('edit-error').hidden       = true;
     document.getElementById('et-title').focus();
@@ -276,6 +291,7 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('detail-edit-form').hidden = true;
     document.getElementById('detail-body').hidden      = false;
     document.getElementById('btn-edit-task').hidden    = false;
+    document.getElementById('btn-close-detail').hidden = false;  // restore Close on cancel
   });
 
   document.getElementById('form-edit-task').addEventListener('submit', async e => {

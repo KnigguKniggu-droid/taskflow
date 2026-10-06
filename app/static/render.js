@@ -40,12 +40,20 @@ export function renderTask(task, usersMap) {
 
   const li = document.createElement('li');
 
-  // Title button
+  // ── Row 1: title ────────────────────────────────────────────────────
+  const titleRow = document.createElement('div');
+  titleRow.className = 'task-row-title';
+
   const btn = document.createElement('button');
   btn.className = 'task-title-btn';
   btn.dataset.taskId = task.id;
   btn.textContent = task.title;
-  li.appendChild(btn);
+  titleRow.appendChild(btn);
+  li.appendChild(titleRow);
+
+  // ── Row 2: badge · tags · due date · assignee ────────────────────────
+  const metaRow = document.createElement('div');
+  metaRow.className = 'task-row-meta';
 
   // Status badge
   const badge = document.createElement('span');
@@ -59,19 +67,16 @@ export function renderTask(task, usersMap) {
     badge.className = 'badge-open';
     badge.textContent = 'Open';
   }
-  li.appendChild(badge);
+  metaRow.appendChild(badge);
 
   // Tags
   if (task.tags && task.tags.length > 0) {
-    const tagsSpan = document.createElement('span');
-    tagsSpan.className = 'tags';
     for (const tag of task.tags) {
       const tagSpan = document.createElement('span');
       tagSpan.className = 'tag';
       tagSpan.textContent = tag;
-      tagsSpan.appendChild(tagSpan);
+      metaRow.appendChild(tagSpan);
     }
-    li.appendChild(tagsSpan);
   }
 
   // Due date
@@ -79,7 +84,7 @@ export function renderTask(task, usersMap) {
     const dueSpan = document.createElement('span');
     dueSpan.textContent = 'Due: ' + fmtDate(task.due_date);
     if (isOverdue) dueSpan.classList.add('overdue-date');
-    li.appendChild(dueSpan);
+    metaRow.appendChild(dueSpan);
   }
 
   // Assignee
@@ -87,9 +92,32 @@ export function renderTask(task, usersMap) {
   assigneeSpan.textContent = (task.assignee_id && usersMap.get(task.assignee_id))
     ? usersMap.get(task.assignee_id)
     : 'Unassigned';
-  li.appendChild(assigneeSpan);
+  metaRow.appendChild(assigneeSpan);
 
+  li.appendChild(metaRow);
   return li;
+}
+
+/**
+ * Derive summary counts from an already-fetched task array and update the
+ * stat cards.  Used when a filter is active so the cards reflect the visible
+ * subset rather than global totals.
+ */
+export function renderFilteredStats(tasks) {
+  const today = todayISO();
+  let open = 0, completed = 0, overdue = 0;
+  for (const t of tasks) {
+    if (t.completed) {
+      completed++;
+    } else {
+      open++;
+      if (t.due_date && t.due_date < today) overdue++;
+    }
+  }
+  document.getElementById('stat-total').textContent     = tasks.length;
+  document.getElementById('stat-open').textContent      = open;
+  document.getElementById('stat-overdue').textContent   = overdue;
+  document.getElementById('stat-completed').textContent = completed;
 }
 
 export function renderTaskDetail(task, usersMap) {
