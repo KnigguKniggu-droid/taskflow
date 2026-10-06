@@ -18,6 +18,10 @@
   --color-badge-overdue-text: #b91c1c;
   --color-badge-completed-bg: #dcfce7;
   --color-badge-completed-text: #166534;
+  --color-badge-in-progress-bg: #fef3c7;
+  --color-badge-in-progress-text: #92400e;
+  --color-badge-blocked-bg: #fce7f3;
+  --color-badge-blocked-text: #9d174d;
   --space-xs: 4px;
   --space-sm: 8px;
   --space-md: 16px;
@@ -227,6 +231,26 @@ header h1 {
   color: var(--color-badge-completed-text);
 }
 
+.badge-in-progress {
+  display: inline-block;
+  font-size: 0.75rem;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 12px;
+  background: var(--color-badge-in-progress-bg);
+  color: var(--color-badge-in-progress-text);
+}
+
+.badge-blocked {
+  display: inline-block;
+  font-size: 0.75rem;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 12px;
+  background: var(--color-badge-blocked-bg);
+  color: var(--color-badge-blocked-text);
+}
+
 /* --- Overdue date highlight --------------------------------------- */
 .overdue-date {
   color: var(--color-danger);
@@ -412,6 +436,97 @@ button[type="submit"]:hover {
   display: flex;
   flex-direction: column;
   gap: var(--space-md);
+}
+
+/* --- Activity timeline -------------------------------------------- */
+.activity-timeline {
+  margin-top: var(--space-md);
+  padding-top: var(--space-md);
+  border-top: 1px solid var(--color-border);
+}
+
+.activity-timeline-heading {
+  font-size: 0.85rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--color-muted);
+  margin: 0 0 var(--space-sm) 0;
+}
+
+.activity-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.activity-list li {
+  display: flex;
+  gap: var(--space-sm);
+  padding: var(--space-xs) 0;
+  font-size: 0.85rem;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.activity-list li:last-child {
+  border-bottom: none;
+}
+
+.activity-dot {
+  color: var(--color-muted);
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+
+.activity-content {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.activity-header {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-sm);
+  flex-wrap: wrap;
+}
+
+.activity-label {
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+.activity-time {
+  color: var(--color-muted);
+  font-size: 0.75rem;
+  white-space: nowrap;
+}
+
+.activity-detail {
+  color: var(--color-muted);
+  font-size: 0.8rem;
+  word-break: break-word;
+}
+
+/* --- Status dropdown in detail view ------------------------------- */
+.status-dropdown-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  flex-wrap: wrap;
+}
+
+.status-dropdown-row label {
+  font-weight: 600;
+  font-size: 0.85rem;
+  margin-bottom: 0;
+  white-space: nowrap;
+}
+
+.status-select {
+  width: auto;
+  min-width: 120px;
+  font-size: 0.85rem;
 }
 
 /* --- Responsive: small screens ------------------------------------ */

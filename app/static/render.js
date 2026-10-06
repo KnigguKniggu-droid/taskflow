@@ -12,11 +12,37 @@ function fmtDate(iso) {
   });
 }
 
+// Map status → { cssClass, label }
+const STATUS_BADGE = {
+  open:        { cssClass: 'badge-open',        label: 'Open'        },
+  in_progress: { cssClass: 'badge-in-progress', label: 'In Progress' },
+  blocked:     { cssClass: 'badge-blocked',      label: 'Blocked'     },
+  completed:   { cssClass: 'badge-completed',    label: 'Completed'   },
+};
+
+// Valid next states for each status (mirrors server VALID_TRANSITIONS)
+const NEXT_STATES = {
+  open:        ['in_progress', 'blocked', 'completed'],
+  in_progress: ['open', 'blocked', 'completed'],
+  blocked:     ['open', 'in_progress', 'completed'],
+  completed:   ['open'],
+};
+
+const ACTIVITY_LABELS = {
+  created:         'Created',
+  status_changed:  'Status changed',
+  reassigned:      'Reassigned',
+  due_date_changed:'Due date changed',
+  details_edited:  'Details edited',
+};
+
 export function renderStatCards(stats) {
-  document.getElementById('stat-total').textContent     = stats.total;
-  document.getElementById('stat-open').textContent      = stats.open;
-  document.getElementById('stat-overdue').textContent   = stats.overdue;
-  document.getElementById('stat-completed').textContent = stats.completed;
+  document.getElementById('stat-total').textContent       = stats.total;
+  document.getElementById('stat-open').textContent        = stats.open;
+  document.getElementById('stat-in-progress').textContent = stats.in_progress ?? '—';
+  document.getElementById('stat-blocked').textContent     = stats.blocked ?? '—';
+  document.getElementById('stat-overdue').textContent     = stats.overdue;
+  document.getElementById('stat-completed').textContent   = stats.completed;
 }
 
 export function populateUserSelect(users, selectEl, allLabel = '— All —') {
@@ -33,10 +59,24 @@ export function populateUserSelect(users, selectEl, allLabel = '— All —') {
   }
 }
 
+function _statusBadgeEl(task) {
+  const today = todayISO();
+  const isOverdue = task.status !== 'completed' && task.due_date && task.due_date < today;
+  const badge = document.createElement('span');
+  if (isOverdue) {
+    badge.className = 'badge-overdue';
+    badge.textContent = 'Overdue';
+  } else {
+    const info = STATUS_BADGE[task.status] || STATUS_BADGE.open;
+    badge.className = info.cssClass;
+    badge.textContent = info.label;
+  }
+  return badge;
+}
+
 export function renderTask(task, usersMap) {
   const today = todayISO();
-  const isCompleted = task.completed;
-  const isOverdue = !isCompleted && task.due_date && task.due_date < today;
+  const isOverdue = task.status !== 'completed' && task.due_date && task.due_date < today;
 
   const li = document.createElement('li');
 
@@ -55,19 +95,7 @@ export function renderTask(task, usersMap) {
   const metaRow = document.createElement('div');
   metaRow.className = 'task-row-meta';
 
-  // Status badge
-  const badge = document.createElement('span');
-  if (isCompleted) {
-    badge.className = 'badge-completed';
-    badge.textContent = 'Completed';
-  } else if (isOverdue) {
-    badge.className = 'badge-overdue';
-    badge.textContent = 'Overdue';
-  } else {
-    badge.className = 'badge-open';
-    badge.textContent = 'Open';
-  }
-  metaRow.appendChild(badge);
+  metaRow.appendChild(_statusBadgeEl(task));
 
   // Tags
   if (task.tags && task.tags.length > 0) {
@@ -105,34 +133,36 @@ export function renderTask(task, usersMap) {
  */
 export function renderFilteredStats(tasks) {
   const today = todayISO();
-  let open = 0, completed = 0, overdue = 0;
+  let open = 0, in_progress = 0, blocked = 0, completed = 0, overdue = 0;
   for (const t of tasks) {
-    if (t.completed) {
+    if (t.status === 'completed') {
       completed++;
     } else {
-      open++;
+      if (t.status === 'in_progress') in_progress++;
+      else if (t.status === 'blocked') blocked++;
+      else open++;
       if (t.due_date && t.due_date < today) overdue++;
     }
   }
-  document.getElementById('stat-total').textContent     = tasks.length;
-  document.getElementById('stat-open').textContent      = open;
-  document.getElementById('stat-overdue').textContent   = overdue;
-  document.getElementById('stat-completed').textContent = completed;
+  document.getElementById('stat-total').textContent       = tasks.length;
+  document.getElementById('stat-open').textContent        = open + in_progress + blocked;
+  document.getElementById('stat-in-progress').textContent = in_progress;
+  document.getElementById('stat-blocked').textContent     = blocked;
+  document.getElementById('stat-overdue').textContent     = overdue;
+  document.getElementById('stat-completed').textContent   = completed;
 }
 
 export function renderTaskDetail(task, usersMap) {
   const today = todayISO();
-  const isCompleted = task.completed;
-  const isOverdue = !isCompleted && task.due_date && task.due_date < today;
+  const isOverdue = task.status !== 'completed' && task.due_date && task.due_date < today;
 
-  // Status badge
-  let statusBadge;
-  if (isCompleted) {
-    statusBadge = '<span class="badge-completed">Completed</span>';
-  } else if (isOverdue) {
-    statusBadge = '<span class="badge-overdue">Overdue</span>';
+  // Status badge HTML
+  let statusBadgeHtml;
+  if (isOverdue) {
+    statusBadgeHtml = '<span class="badge-overdue">Overdue</span>';
   } else {
-    statusBadge = '<span class="badge-open">Open</span>';
+    const info = STATUS_BADGE[task.status] || STATUS_BADGE.open;
+    statusBadgeHtml = `<span class="${escHtml(info.cssClass)}">${escHtml(info.label)}</span>`;
   }
 
   // Description
@@ -171,15 +201,41 @@ export function renderTaskDetail(task, usersMap) {
     })
   );
 
-  // Complete button or completed badge
-  const actionHtml = isCompleted
-    ? '<span class="badge-completed">Completed</span>'
-    : `<button id="btn-complete-task" class="btn-complete" data-task-id="${task.id}">Mark Complete</button>`;
+  // Status action: dropdown of valid next states if status is known,
+  // otherwise fall back to the legacy "Mark Complete" button for old servers.
+  let actionHtml;
+  if (task.status) {
+    const nextStates = NEXT_STATES[task.status] || [];
+    if (nextStates.length > 0) {
+      const opts = nextStates
+        .map(s => {
+          const label = STATUS_BADGE[s] ? STATUS_BADGE[s].label : s;
+          return `<option value="${escHtml(s)}">${escHtml(label)}</option>`;
+        })
+        .join('');
+      actionHtml = `
+        <div class="status-dropdown-row">
+          <label for="status-select-${task.id}">Change status:</label>
+          <select id="status-select-${task.id}" class="status-select" data-task-id="${task.id}">
+            <option value="">— select —</option>
+            ${opts}
+          </select>
+        </div>`;
+    } else {
+      // completed with no further transitions (shouldn't happen normally)
+      actionHtml = `<span class="${escHtml((STATUS_BADGE[task.status] || STATUS_BADGE.completed).cssClass)}">${escHtml((STATUS_BADGE[task.status] || STATUS_BADGE.completed).label)}</span>`;
+    }
+  } else {
+    // Graceful degradation: server does not yet return status
+    actionHtml = task.completed
+      ? '<span class="badge-completed">Completed</span>'
+      : `<button id="btn-complete-task" class="btn-complete" data-task-id="${task.id}">Mark Complete</button>`;
+  }
 
   const html = `
     <dl class="task-detail-fields">
       <dt>Status</dt>
-      <dd>${statusBadge}</dd>
+      <dd>${statusBadgeHtml}</dd>
 
       <dt>Description</dt>
       <dd>${descHtml}</dd>
@@ -200,6 +256,51 @@ export function renderTaskDetail(task, usersMap) {
   `;
 
   return { html, title: task.title };
+}
+
+/**
+ * Render the activity timeline into the #detail-activity section.
+ * Pass an empty array to hide the section.
+ */
+export function renderActivityTimeline(activities) {
+  const section = document.getElementById('detail-activity');
+  const list    = document.getElementById('activity-list');
+
+  if (!activities || activities.length === 0) {
+    section.hidden = true;
+    list.innerHTML = '';
+    return;
+  }
+
+  list.innerHTML = '';
+  for (const entry of activities) {
+    const label = ACTIVITY_LABELS[entry.event] || entry.event;
+    const timeStr = _fmtActivityTime(entry.created_at);
+
+    const li = document.createElement('li');
+    li.innerHTML = `
+      <span class="activity-dot" aria-hidden="true">●</span>
+      <div class="activity-content">
+        <div class="activity-header">
+          <span class="activity-label">${escHtml(label)}</span>
+          <span class="activity-time">${escHtml(timeStr)}</span>
+        </div>
+        ${entry.detail ? `<div class="activity-detail">${escHtml(entry.detail)}</div>` : ''}
+      </div>`;
+    list.appendChild(li);
+  }
+  section.hidden = false;
+}
+
+function _fmtActivityTime(isoStr) {
+  try {
+    return new Date(isoStr).toLocaleString(undefined, {
+      year: 'numeric', month: 'short', day: 'numeric',
+      hour: '2-digit', minute: '2-digit',
+    });
+  } catch {
+    return isoStr;
+  }
 }
 
 function escHtml(str) {

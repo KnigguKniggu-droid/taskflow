@@ -109,6 +109,7 @@ async function openTaskDetail(taskId, returnEl) {
   const detailError   = document.getElementById('detail-error');
   const editForm      = document.getElementById('detail-edit-form');
   const btnEditTask   = document.getElementById('btn-edit-task');
+  const activitySection = document.getElementById('detail-activity');
 
   // Reset to read view
   detailTitle.textContent = '…';
@@ -117,24 +118,62 @@ async function openTaskDetail(taskId, returnEl) {
   editForm.hidden         = true;
   detailBody.hidden       = false;
   btnEditTask.hidden      = true;
+  activitySection.hidden  = true;
 
   modal.openModal(detailDialog, returnEl);
 
   try {
-    const task = await api.get(`/tasks/${taskId}`);
-    const { html, title } = render.renderTaskDetail(task, usersMap);
+    // Fetch task and activity in parallel
+    const [task, activityData] = await Promise.allSettled([
+      api.get(`/tasks/${taskId}`),
+      api.get(`/tasks/${taskId}/activity`),
+    ]);
+
+    if (task.status === 'rejected') throw task.reason;
+
+    const taskValue = task.value;
+    const { html, title } = render.renderTaskDetail(taskValue, usersMap);
     detailTitle.textContent  = title;
     detailBody.innerHTML     = html;
-    currentDetailTaskId      = task.id;
+    currentDetailTaskId      = taskValue.id;
     btnEditTask.hidden        = false;
-    render.renderEditForm(task, usersMap);
+    render.renderEditForm(taskValue, usersMap);
 
-    // Wire "Mark Complete" button if present
+    // Wire status dropdown if present
+    _wireStatusDropdown(detailBody, taskId, detailDialog, detailError);
+
+    // Wire legacy "Mark Complete" button if present (graceful degradation)
     _wireCompleteButton(detailBody, taskId, detailDialog, detailError);
+
+    // Render activity timeline
+    const activities = activityData.status === 'fulfilled'
+      ? (activityData.value.activity || [])
+      : [];
+    render.renderActivityTimeline(activities);
   } catch (err) {
     detailError.textContent = err.message;
     detailError.hidden = false;
   }
+}
+
+function _wireStatusDropdown(detailBody, taskId, detailDialog, detailError) {
+  const sel = detailBody.querySelector('.status-select');
+  if (!sel) return;
+  sel.addEventListener('change', async () => {
+    const newStatus = sel.value;
+    if (!newStatus) return;
+    sel.disabled = true;
+    try {
+      await api.patch(`/tasks/${taskId}`, { status: newStatus });
+      modal.closeModal(detailDialog);
+      await loadTasks(currentFilter);
+    } catch (err) {
+      detailError.textContent = err.message;
+      detailError.hidden = false;
+      sel.disabled = false;
+      sel.value = '';
+    }
+  });
 }
 
 function _wireCompleteButton(detailBody, taskId, detailDialog, detailError) {
@@ -217,7 +256,17 @@ async function submitUpdateTask(taskId) {
     document.getElementById('btn-close-detail').hidden = false;  // restore Close after save
     render.renderEditForm(task, usersMap);
 
+    _wireStatusDropdown(detailBody, taskId, detailDialog, detailError);
     _wireCompleteButton(detailBody, taskId, detailDialog, detailError);
+
+    // Refresh activity after edit
+    try {
+      const actData = await api.get(`/tasks/${taskId}/activity`);
+      render.renderActivityTimeline(actData.activity || []);
+    } catch (_) {
+      // activity is non-critical; ignore errors
+    }
+
     await loadTasks(currentFilter);
   } catch (err) {
     errorEl.textContent = err.message;

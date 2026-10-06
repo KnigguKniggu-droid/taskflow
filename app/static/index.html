@@ -36,6 +36,14 @@
         <dd id="stat-open" role="status">—</dd>
       </dl>
       <dl>
+        <dt>In Progress</dt>
+        <dd id="stat-in-progress" role="status">—</dd>
+      </dl>
+      <dl>
+        <dt>Blocked</dt>
+        <dd id="stat-blocked" role="status">—</dd>
+      </dl>
+      <dl>
         <dt>Overdue</dt>
         <dd id="stat-overdue" role="status">—</dd>
       </dl>
@@ -87,6 +95,11 @@
   <dialog id="modal-task-detail" aria-modal="true" aria-labelledby="detail-title">
     <h2 id="detail-title"></h2>
     <div id="detail-body"></div>
+
+    <section id="detail-activity" class="activity-timeline" hidden>
+      <h3 class="activity-timeline-heading">Activity</h3>
+      <ul id="activity-list" class="activity-list"></ul>
+    </section>
 
     <div id="detail-edit-form" hidden>
       <form id="form-edit-task">
