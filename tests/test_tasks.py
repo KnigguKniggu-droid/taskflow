@@ -958,6 +958,7 @@ class FilteredStatsConsistencyTestCase(unittest.TestCase):
         for t in tasks:
             self.assertIn("completed", t, t)
             self.assertIn("due_date",  t, t)
+            self.assertIn("status",    t, t)
 
         # Derive counts exactly as the client JS does
         today_iso = date.today().isoformat()
@@ -977,6 +978,326 @@ class FilteredStatsConsistencyTestCase(unittest.TestCase):
         # The untagged task must NOT appear in the filtered list
         filtered_ids = {t["id"] for t in tasks}
         self.assertNotIn(t_open_other["id"], filtered_ids, tasks)
+
+
+class StatusLifecycleTestCase(unittest.TestCase):
+    """Tests for the four-state task lifecycle and status transition validation."""
+
+    def setUp(self):
+        fd, self.db_path = tempfile.mkstemp(suffix=".sqlite")
+        os.close(fd)
+        self.app = create_app({"TESTING": True, "DATABASE": self.db_path})
+        self.client = self.app.test_client()
+
+    def tearDown(self):
+        os.remove(self.db_path)
+
+    def create_task(self, **fields):
+        r = self.client.post("/tasks", json={"title": "Task", **fields})
+        self.assertEqual(r.status_code, 201, r.get_json())
+        return r.get_json()
+
+    def patch_task(self, task_id, body):
+        return self.client.patch(f"/tasks/{task_id}", json=body)
+
+    def test_new_task_has_status_open_and_completed_false(self):
+        task = self.create_task()
+        self.assertEqual(task["status"], "open", task)
+        self.assertFalse(task["completed"], task)
+
+    def test_patch_open_to_in_progress(self):
+        task = self.create_task()
+        r = self.patch_task(task["id"], {"status": "in_progress"})
+        self.assertEqual(r.status_code, 200, r.get_json())
+        body = r.get_json()
+        self.assertEqual(body["status"], "in_progress", body)
+        self.assertFalse(body["completed"], body)
+
+    def test_patch_open_to_blocked(self):
+        task = self.create_task()
+        r = self.patch_task(task["id"], {"status": "blocked"})
+        self.assertEqual(r.status_code, 200, r.get_json())
+        self.assertEqual(r.get_json()["status"], "blocked")
+
+    def test_patch_open_to_completed_sets_completed_true(self):
+        task = self.create_task()
+        r = self.patch_task(task["id"], {"status": "completed"})
+        self.assertEqual(r.status_code, 200, r.get_json())
+        body = r.get_json()
+        self.assertEqual(body["status"], "completed", body)
+        self.assertTrue(body["completed"], body)
+
+    def test_patch_completed_to_open_reopens(self):
+        task = self.create_task()
+        self.patch_task(task["id"], {"status": "completed"})
+        r = self.patch_task(task["id"], {"status": "open"})
+        self.assertEqual(r.status_code, 200, r.get_json())
+        body = r.get_json()
+        self.assertEqual(body["status"], "open", body)
+        self.assertFalse(body["completed"], body)
+
+    def test_patch_completed_to_in_progress_returns_409(self):
+        """completed → in_progress is a disallowed transition → 409."""
+        task = self.create_task()
+        self.patch_task(task["id"], {"status": "completed"})
+        r = self.patch_task(task["id"], {"status": "in_progress"})
+        self.assertEqual(r.status_code, 409, r.get_json())
+        self.assertIn("error", r.get_json())
+        self.assertIn("→", r.get_json()["error"])
+
+    def test_patch_unknown_status_returns_400(self):
+        task = self.create_task()
+        r = self.patch_task(task["id"], {"status": "pending"})
+        self.assertEqual(r.status_code, 400, r.get_json())
+        self.assertIn("error", r.get_json())
+
+    def test_post_complete_sets_status_completed(self):
+        task = self.create_task()
+        r = self.client.post(f"/tasks/{task['id']}/complete")
+        self.assertEqual(r.status_code, 200, r.get_json())
+        body = r.get_json()
+        self.assertEqual(body["status"], "completed", body)
+        self.assertTrue(body["completed"], body)
+
+    def test_post_complete_idempotent_on_already_completed(self):
+        task = self.create_task()
+        self.client.post(f"/tasks/{task['id']}/complete")
+        r = self.client.post(f"/tasks/{task['id']}/complete")
+        self.assertEqual(r.status_code, 200, r.get_json())
+        body = r.get_json()
+        self.assertEqual(body["status"], "completed", body)
+
+    def test_patch_completed_field_still_rejected(self):
+        """PATCH with 'completed' in the body must still return 400."""
+        task = self.create_task()
+        r = self.patch_task(task["id"], {"completed": True})
+        self.assertEqual(r.status_code, 400, r.get_json())
+        self.assertIn("error", r.get_json())
+
+    def test_patch_status_equivalent_to_post_complete(self):
+        """PATCH {"status":"completed"} behaves like POST /complete."""
+        task = self.create_task()
+        r = self.patch_task(task["id"], {"status": "completed"})
+        self.assertEqual(r.status_code, 200, r.get_json())
+        self.assertTrue(r.get_json()["completed"], r.get_json())
+
+    def test_in_progress_to_all_valid_targets(self):
+        for target in ("open", "blocked", "completed"):
+            # Fresh task each iteration
+            t = self.create_task()
+            self.patch_task(t["id"], {"status": "in_progress"})
+            r = self.patch_task(t["id"], {"status": target})
+            self.assertEqual(r.status_code, 200, f"in_progress→{target}: {r.get_json()}")
+
+    def test_blocked_to_all_valid_targets(self):
+        for target in ("open", "in_progress", "completed"):
+            t = self.create_task()
+            self.patch_task(t["id"], {"status": "blocked"})
+            r = self.patch_task(t["id"], {"status": target})
+            self.assertEqual(r.status_code, 200, f"blocked→{target}: {r.get_json()}")
+
+
+class ActivityHistoryTestCase(unittest.TestCase):
+    """Tests for task_activity rows and GET /tasks/<id>/activity."""
+
+    def setUp(self):
+        fd, self.db_path = tempfile.mkstemp(suffix=".sqlite")
+        os.close(fd)
+        self.app = create_app({"TESTING": True, "DATABASE": self.db_path})
+        self.client = self.app.test_client()
+
+    def tearDown(self):
+        os.remove(self.db_path)
+
+    def create_user(self, name="Ada"):
+        r = self.client.post("/users", json={"name": name})
+        self.assertEqual(r.status_code, 201, r.get_json())
+        return r.get_json()
+
+    def create_task(self, **fields):
+        r = self.client.post("/tasks", json={"title": "Task", **fields})
+        self.assertEqual(r.status_code, 201, r.get_json())
+        return r.get_json()
+
+    def get_activity(self, task_id):
+        r = self.client.get(f"/tasks/{task_id}/activity")
+        self.assertEqual(r.status_code, 200, r.get_json())
+        return r.get_json()["activity"]
+
+    def patch_task(self, task_id, body):
+        return self.client.patch(f"/tasks/{task_id}", json=body)
+
+    def test_create_writes_exactly_one_created_row(self):
+        task = self.create_task()
+        rows = self.get_activity(task["id"])
+        self.assertEqual(len(rows), 1, rows)
+        self.assertEqual(rows[0]["event"], "created", rows)
+
+    def test_patch_status_writes_status_changed_row(self):
+        task = self.create_task()
+        self.patch_task(task["id"], {"status": "in_progress"})
+        rows = self.get_activity(task["id"])
+        events = [r["event"] for r in rows]
+        self.assertIn("status_changed", events, rows)
+        status_row = next(r for r in rows if r["event"] == "status_changed")
+        self.assertIn("open", status_row["detail"], status_row)
+        self.assertIn("in_progress", status_row["detail"], status_row)
+
+    def test_patch_assignee_writes_reassigned_row(self):
+        user = self.create_user()
+        task = self.create_task()
+        self.patch_task(task["id"], {"assignee_id": user["id"]})
+        rows = self.get_activity(task["id"])
+        events = [r["event"] for r in rows]
+        self.assertIn("reassigned", events, rows)
+
+    def test_patch_due_date_writes_due_date_changed_row(self):
+        task = self.create_task()
+        self.patch_task(task["id"], {"due_date": "2030-12-31"})
+        rows = self.get_activity(task["id"])
+        events = [r["event"] for r in rows]
+        self.assertIn("due_date_changed", events, rows)
+        dd_row = next(r for r in rows if r["event"] == "due_date_changed")
+        self.assertIn("2030-12-31", dd_row["detail"], dd_row)
+
+    def test_patch_details_writes_single_details_edited_row(self):
+        """Changing title + tags + description in one PATCH → exactly one details_edited row."""
+        task = self.create_task()
+        self.patch_task(task["id"], {
+            "title": "New Title",
+            "tags": ["a", "b"],
+            "description": "new desc",
+        })
+        rows = self.get_activity(task["id"])
+        details_rows = [r for r in rows if r["event"] == "details_edited"]
+        self.assertEqual(len(details_rows), 1, rows)
+
+    def test_patch_multi_category_writes_correct_rows(self):
+        """PATCH that changes title + due_date + status writes one row per category."""
+        task = self.create_task()
+        self.patch_task(task["id"], {
+            "title": "Changed",
+            "due_date": "2030-01-01",
+            "status": "in_progress",
+        })
+        rows = self.get_activity(task["id"])
+        events = [r["event"] for r in rows]
+        self.assertIn("details_edited",  events, events)
+        self.assertIn("due_date_changed", events, events)
+        self.assertIn("status_changed",  events, events)
+
+    def test_failed_patch_writes_no_activity(self):
+        """A validation error must not write any activity rows."""
+        task = self.create_task()
+        before = self.get_activity(task["id"])
+        r = self.patch_task(task["id"], {"status": "pending"})  # invalid
+        self.assertEqual(r.status_code, 400, r.get_json())
+        after = self.get_activity(task["id"])
+        self.assertEqual(len(before), len(after), f"activity grew after failed PATCH: {after}")
+
+    def test_activity_rows_ordered_oldest_first(self):
+        task = self.create_task()
+        self.patch_task(task["id"], {"status": "in_progress"})
+        self.patch_task(task["id"], {"status": "blocked"})
+        rows = self.get_activity(task["id"])
+        ids = [r["id"] for r in rows]
+        self.assertEqual(ids, sorted(ids), f"activity not ordered by id asc: {ids}")
+
+    def test_activity_404_for_nonexistent_task(self):
+        r = self.client.get("/tasks/99999/activity")
+        self.assertEqual(r.status_code, 404, r.get_json())
+        self.assertIn("error", r.get_json())
+
+    def test_activity_isolated_between_tasks(self):
+        t1 = self.create_task(title="Task 1")
+        t2 = self.create_task(title="Task 2")
+        self.patch_task(t1["id"], {"status": "in_progress"})
+        rows_t1 = self.get_activity(t1["id"])
+        rows_t2 = self.get_activity(t2["id"])
+        t1_events = [r["event"] for r in rows_t1]
+        t2_events = [r["event"] for r in rows_t2]
+        # t1 has created + status_changed; t2 has only created
+        self.assertIn("status_changed", t1_events, t1_events)
+        self.assertNotIn("status_changed", t2_events, t2_events)
+
+    def test_post_complete_writes_status_changed_row(self):
+        task = self.create_task()
+        self.client.post(f"/tasks/{task['id']}/complete")
+        rows = self.get_activity(task["id"])
+        events = [r["event"] for r in rows]
+        self.assertIn("status_changed", events, rows)
+
+    def test_post_complete_idempotent_does_not_duplicate_activity(self):
+        task = self.create_task()
+        self.client.post(f"/tasks/{task['id']}/complete")
+        before = self.get_activity(task["id"])
+        self.client.post(f"/tasks/{task['id']}/complete")
+        after = self.get_activity(task["id"])
+        self.assertEqual(len(before), len(after),
+                         f"double complete added extra activity rows: {after}")
+
+
+class StatsBreakdownTestCase(unittest.TestCase):
+    """Tests for the extended GET /tasks/stats response."""
+
+    def setUp(self):
+        fd, self.db_path = tempfile.mkstemp(suffix=".sqlite")
+        os.close(fd)
+        self.app = create_app({"TESTING": True, "DATABASE": self.db_path})
+        self.client = self.app.test_client()
+
+    def tearDown(self):
+        os.remove(self.db_path)
+
+    def create_task(self, **fields):
+        r = self.client.post("/tasks", json={"title": "Task", **fields})
+        self.assertEqual(r.status_code, 201, r.get_json())
+        return r.get_json()
+
+    def get_stats(self):
+        r = self.client.get("/tasks/stats")
+        self.assertEqual(r.status_code, 200, r.get_json())
+        return r.get_json()
+
+    def patch_task(self, task_id, body):
+        return self.client.patch(f"/tasks/{task_id}", json=body)
+
+    def test_stats_contains_in_progress_and_blocked_keys(self):
+        stats = self.get_stats()
+        self.assertIn("in_progress", stats, stats)
+        self.assertIn("blocked", stats, stats)
+
+    def test_open_equals_sum_of_non_completed(self):
+        t1 = self.create_task()  # open
+        t2 = self.create_task()  # in_progress
+        t3 = self.create_task()  # blocked
+        t4 = self.create_task()  # completed
+        self.patch_task(t2["id"], {"status": "in_progress"})
+        self.patch_task(t3["id"], {"status": "blocked"})
+        self.patch_task(t4["id"], {"status": "completed"})
+
+        stats = self.get_stats()
+        # open = strictly open + in_progress + blocked
+        self.assertEqual(stats["open"], 3, stats)
+        self.assertEqual(stats["in_progress"], 1, stats)
+        self.assertEqual(stats["blocked"], 1, stats)
+        self.assertEqual(stats["completed"], 1, stats)
+        self.assertEqual(stats["total"], 4, stats)
+
+    def test_overdue_counts_any_non_completed_status(self):
+        """Overdue is any non-completed task with a past due date, regardless of status."""
+        yesterday = (date.today() - timedelta(days=1)).isoformat()
+        t_open     = self.create_task(due_date=yesterday)
+        t_progress = self.create_task(due_date=yesterday)
+        t_blocked  = self.create_task(due_date=yesterday)
+        t_done     = self.create_task(due_date=yesterday)
+        self.patch_task(t_progress["id"], {"status": "in_progress"})
+        self.patch_task(t_blocked["id"],  {"status": "blocked"})
+        self.patch_task(t_done["id"],     {"status": "completed"})
+
+        stats = self.get_stats()
+        # open + in_progress + blocked each have past due dates → 3 overdue
+        self.assertEqual(stats["overdue"], 3, stats)
 
 
 if __name__ == "__main__":
