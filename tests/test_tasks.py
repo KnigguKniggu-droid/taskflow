@@ -545,8 +545,10 @@ class StatsEndpointTestCase(unittest.TestCase):
 
     def test_completed_count(self):
         task = self.create_task()
-        self.client.post(f"/tasks/{task['id']}/complete")
+        r_complete = self.client.post(f"/tasks/{task['id']}/complete")
+        self.assertEqual(r_complete.status_code, 200, r_complete.get_json())
         stats = self.get_stats()
+        self.assertEqual(stats["total"], 1, stats)
         self.assertEqual(stats["completed"], 1, stats)
         self.assertEqual(stats["open"], 0, stats)
 
@@ -668,6 +670,36 @@ class UpdateTaskTestCase(unittest.TestCase):
         r = self.patch_task(task["id"], {"completed": True})
         self.assertEqual(r.status_code, 400, r.get_json())
         self.assertIn("error", r.get_json())
+
+    def test_created_at_not_settable(self):
+        task = self.create_task()
+        r = self.patch_task(task["id"], {"created_at": "2020-01-01T00:00:00Z"})
+        self.assertEqual(r.status_code, 400, r.get_json())
+        self.assertIn("error", r.get_json())
+
+    def test_partial_update_isolation(self):
+        """Updating one field must not wipe other fields."""
+        user = self.create_user()
+        task = self.create_task(
+            tags=["original"],
+            assignee_id=user["id"],
+            due_date="2030-01-01",
+        )
+        r = self.patch_task(task["id"], {"title": "NewTitle"})
+        self.assertEqual(r.status_code, 200, r.get_json())
+        data = r.get_json()
+        self.assertEqual(data["title"], "NewTitle", data)
+        self.assertEqual(data["tags"], ["original"], data)
+        self.assertEqual(data["assignee_id"], user["id"], data)
+        self.assertEqual(data["due_date"], "2030-01-01", data)
+
+    def test_completed_unchanged_after_patch(self):
+        """PATCH must not accidentally flip the completed flag."""
+        task = self.create_task()
+        self.assertFalse(task["completed"])
+        r = self.patch_task(task["id"], {"title": "Updated"})
+        self.assertEqual(r.status_code, 200, r.get_json())
+        self.assertFalse(r.get_json()["completed"], r.get_json())
 
 
 if __name__ == "__main__":

@@ -15,7 +15,14 @@ taskflow-bob/
 │   ├── __init__.py   — application factory (create_app)
 │   ├── db.py         — SQLite connection handling and schema creation
 │   ├── services.py   — validation and business logic; no HTTP knowledge
-│   └── routes.py     — Flask Blueprint; all HTTP routes and error handlers
+│   ├── routes.py     — Flask Blueprint; all HTTP routes and error handlers
+│   └── static/       — web UI (served by Flask at GET /)
+│       ├── index.html — single-page task board shell
+│       ├── style.css  — responsive layout, dark mode, accessibility styles
+│       ├── api.js     — fetch helpers (get / post / patch)
+│       ├── render.js  — pure DOM-building functions
+│       ├── modal.js   — dialog lifecycle and focus management
+│       └── app.js     — entry-point coordinator
 ├── tests/
 │   └── test_tasks.py — unittest-based integration test suite
 ├── run.py            — development server entry point
@@ -100,14 +107,18 @@ The SQLite database and its parent directory are created automatically on first 
 
 All request and response bodies are JSON. Errors are returned as `{"error": "<message>"}`.
 
-| Method | Path                     | Description                                              |
-|--------|--------------------------|----------------------------------------------------------|
-| POST   | `/users`                 | Create a user. Body: `{"name": "..."}`. Returns 201.     |
-| POST   | `/tasks`                 | Create a task (fields below). Returns 201.               |
-| GET    | `/tasks`                 | List tasks. Optional filters: `?assignee_id=<id>` and/or `?tag=<tag>`. |
-| GET    | `/tasks/<id>`            | Get one task; 404 if not found.                          |
-| POST   | `/tasks/<id>/complete`   | Mark a task completed; 404 if not found.                 |
-| GET    | `/tasks/overdue`         | List open tasks whose due date is before today.          |
+| Method  | Path                     | Description                                                                                 |
+|---------|--------------------------|---------------------------------------------------------------------------------------------|
+| GET     | `/`                      | Serves the web UI (`app/static/index.html`).                                                |
+| GET     | `/users`                 | List all users. Returns `{"users": [...]}` ordered by id.                                   |
+| POST    | `/users`                 | Create a user. Body: `{"name": "..."}`. Returns 201.                                        |
+| GET     | `/tasks/stats`           | Summary counts. Returns `{"total", "open", "completed", "overdue"}`.                        |
+| POST    | `/tasks`                 | Create a task (fields below). Returns 201.                                                  |
+| GET     | `/tasks`                 | List tasks. Optional filters: `?assignee_id=<id>` and/or `?tag=<tag>`.                     |
+| GET     | `/tasks/<id>`            | Get one task; 404 if not found.                                                             |
+| PATCH   | `/tasks/<id>`            | Partially update a task; supply any subset of task fields. Returns 200; 404 if not found.   |
+| POST    | `/tasks/<id>/complete`   | Mark a task completed; 404 if not found.                                                    |
+| GET     | `/tasks/overdue`         | List open tasks whose due date is before today.                                             |
 
 ### Task fields
 
@@ -151,6 +162,10 @@ so every test is fully isolated with no shared state.
   each item, validates against `TAG_PATTERN`, de-duplicates, and enforces the 10-tag limit.
   The result is stored in SQLite as a comma-joined string and split back on read.
 - Due dates: validated with a regex then `date.fromisoformat` to catch impossible dates.
+- Partial updates (`update_task`): only supplied keys are validated and written. Passing
+  `{"due_date": null}` explicitly clears the field; omitting the key leaves it unchanged.
+  The `completed` and `created_at` fields are never accepted by `PATCH` (rejected by
+  `_reject_unknown_fields` against `TASK_FIELDS`).
 
 ### Error responses
 
@@ -181,14 +196,18 @@ so every test is fully isolated with no shared state.
 
 ## Feature Status
 
-| Feature                               | Status          |
-|---------------------------------------|-----------------|
-| Create / get / list tasks             | Implemented     |
-| Complete a task                       | Implemented     |
-| Overdue task listing                  | Implemented     |
-| Filter tasks by assignee (`?assignee_id=`) | Implemented |
-| Create users                          | Implemented     |
-| Filter tasks by tag (`?tag=<tag>`)    | Implemented     |
+| Feature                                        | Status          |
+|------------------------------------------------|-----------------|
+| Create / get / list tasks                      | Implemented     |
+| Complete a task                                | Implemented     |
+| Overdue task listing                           | Implemented     |
+| Filter tasks by assignee (`?assignee_id=`)     | Implemented     |
+| Create users                                   | Implemented     |
+| Filter tasks by tag (`?tag=<tag>`)             | Implemented     |
+| List users (`GET /users`)                      | Implemented     |
+| Task summary counts (`GET /tasks/stats`)       | Implemented     |
+| Partial task update (`PATCH /tasks/<id>`)      | Implemented     |
+| Web task board UI (served at `GET /`)          | Implemented     |
 
 ---
 
