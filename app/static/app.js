@@ -66,6 +66,39 @@ async function openTaskDetail(taskId, returnEl) {
   // TODO M5
 }
 
+async function submitCreateTask() {
+  const title       = document.getElementById('ct-title').value.trim();
+  const description = document.getElementById('ct-desc').value.trim();
+  const tags        = document.getElementById('ct-tags').value.trim();
+  const due_date    = document.getElementById('ct-due').value;        // "" or "YYYY-MM-DD"
+  const assigneeVal = document.getElementById('ct-assignee').value;   // "" or "42"
+
+  const body = { title };
+  if (description)        body.description = description;
+  if (tags)               body.tags        = tags;
+  if (due_date)           body.due_date    = due_date;
+  if (assigneeVal !== '') body.assignee_id = Number(assigneeVal);
+
+  const errorEl   = document.getElementById('create-error');
+  const submitBtn = document.querySelector('#form-create-task button[type="submit"]');
+
+  errorEl.hidden = true;
+  submitBtn.disabled = true;
+
+  try {
+    await api.post('/tasks', body);
+    const createDialog = document.getElementById('modal-create-task');
+    modal.closeModal(createDialog);
+    document.getElementById('form-create-task').reset();
+    await Promise.all([loadStats(), loadTasks(currentFilter)]);
+  } catch (err) {
+    errorEl.textContent = err.message;
+    errorEl.hidden = false;
+  } finally {
+    submitBtn.disabled = false;
+  }
+}
+
 document.addEventListener('DOMContentLoaded', () => {
   // Filter form
   document.getElementById('filter-form').addEventListener('submit', e => {
@@ -87,6 +120,29 @@ document.addEventListener('DOMContentLoaded', () => {
   // Global error banner
   document.getElementById('btn-dismiss-error').addEventListener('click', () => {
     document.getElementById('error-banner').hidden = true;
+  });
+
+  // Create task modal
+  const createDialog = document.getElementById('modal-create-task');
+  const btnNewTask   = document.getElementById('btn-new-task');
+
+  btnNewTask.addEventListener('click', () => {
+    modal.openModal(createDialog, btnNewTask);
+  });
+
+  document.getElementById('btn-cancel-create').addEventListener('click', () => {
+    modal.closeModal(createDialog);
+  });
+
+  document.getElementById('form-create-task').addEventListener('submit', e => {
+    e.preventDefault();
+    submitCreateTask();
+  });
+
+  // Task detail modal (close button stub — full impl M5)
+  const detailDialog = document.getElementById('modal-task-detail');
+  document.getElementById('btn-close-detail').addEventListener('click', () => {
+    modal.closeModal(detailDialog);
   });
 
   // Initial load
