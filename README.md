@@ -1,5 +1,39 @@
 # TaskFlow
 
+## Quick start — for judges and new visitors
+
+**What it is:** TaskFlow is a team task-board: a JSON REST API backed by SQLite with a
+single-page web UI.  Users can create tasks, assign them, track them through an
+open → in_progress → blocked → completed lifecycle, tag and filter them, and view
+a per-task activity history.
+
+**Live demo:** <https://kltamu.pythonanywhere.com>
+
+**Run it locally:**
+
+```bash
+git clone https://github.com/KnigguKniggu-droid/taskflow.git
+cd taskflow
+python -m venv .venv
+# Windows: .venv\Scripts\activate  |  macOS/Linux: source .venv/bin/activate
+pip install -r requirements.txt
+python run.py          # → http://127.0.0.1:5000
+```
+
+**Run the tests:**
+
+```bash
+python -m unittest tests.test_tasks -v
+```
+
+Each test uses a temporary database; there is no shared state.
+
+**IBM Bob session records:** [`bob_sessions/README.md`](bob_sessions/README.md)
+contains the full session index — prompts, Bob's answers, task IDs, durations,
+and commit references for all 31 tasks across three Bob sessions.
+
+---
+
 TaskFlow is a small JSON API for tracking tasks and the people they are assigned to.
 It is a Flask application backed by SQLite, with no other runtime dependencies.
 
@@ -152,6 +186,11 @@ python smoke_test.py --base-url https://<username>.pythonanywhere.com
 
 Exit code is 0 if all checks pass, 1 otherwise.
 
+> **Note:** the smoke test creates a user and several tasks that remain in the target
+> database after the run (there is no delete endpoint).  Run it against a local dev
+> server for routine checks; running it against a live instance is fine for a one-time
+> deployment verification but will leave test records in the production database.
+
 ## Deploying to PythonAnywhere (free tier)
 
 PythonAnywhere provides persistent disk and WSGI hosting configured through its web UI —
@@ -162,7 +201,7 @@ no long-running processes needed.
 **1. Open a Bash console on PythonAnywhere and clone the repo:**
 
 ```bash
-git clone https://github.com/<your-org>/taskflow-bob.git ~/taskflow
+git clone https://github.com/KnigguKniggu-droid/taskflow.git ~/taskflow
 ```
 
 **2. Create a virtualenv and install dependencies:**
@@ -186,19 +225,10 @@ mkdir -p ~/taskflow-data
 - Set **Source code** to `/home/<username>/taskflow`.
 - Set **Virtualenv** to `/home/<username>/taskflow/.venv`.
 
-**5. Set the database environment variable:**
+**5. Configure the WSGI file:**
 
-In the **Web** tab, scroll to **Environment variables** and add:
-
-| Variable | Value |
-|---|---|
-| `TASKFLOW_DATABASE` | `/home/<username>/taskflow-data/taskflow.sqlite` |
-
-Replace `<username>` with your PythonAnywhere username.
-
-**6. Paste the WSGI file contents:**
-
-Click **WSGI configuration file** to open the editor.  Replace the entire contents with:
+Click **WSGI configuration file** in the Web tab to open the editor.
+Replace the entire contents with:
 
 ```python
 import sys
@@ -207,7 +237,9 @@ import os
 # Add the source tree to the Python path
 sys.path.insert(0, '/home/<username>/taskflow')
 
-# Point the database at persistent storage outside the source tree
+# Point the database at persistent storage outside the source tree.
+# Note: free-tier PythonAnywhere Web tabs do not have an
+# "Environment variables" section; set the variable here instead.
 os.environ.setdefault(
     'TASKFLOW_DATABASE',
     '/home/<username>/taskflow-data/taskflow.sqlite',
@@ -216,9 +248,11 @@ os.environ.setdefault(
 from wsgi import application  # noqa: E402  (must come after sys.path modification)
 ```
 
-**7. Click Reload** in the Web tab.
+Replace `<username>` with your PythonAnywhere username.
 
-**8. Verify** with the smoke test:
+**6. Click Reload** in the Web tab.
+
+**7. Verify** with the smoke test:
 
 ```bash
 python ~/taskflow/smoke_test.py --base-url https://<username>.pythonanywhere.com
@@ -232,13 +266,10 @@ git pull
 # Reload the web app in the PythonAnywhere dashboard (Web → Reload)
 ```
 
-No migration is needed unless the database schema changed.  If it did, delete the SQLite
-file and let the app recreate it:
-
-```bash
-rm ~/taskflow-data/taskflow.sqlite
-# Then reload the web app
-```
+No manual migration is needed.  The app upgrades existing databases in place on
+startup: it adds any new columns and back-fills data so that existing records
+remain valid.  **Do not delete the SQLite file** after a pull — that would
+destroy all stored data.
 
 ### Health check
 

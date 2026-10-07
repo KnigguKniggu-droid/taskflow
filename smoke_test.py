@@ -88,6 +88,13 @@ class SmokeRunner:
         return self._failed == 0
 
     def run(self):
+        _is_local = self.base.startswith("http://127.") or self.base.startswith("http://localhost")
+        if not _is_local:
+            print(
+                "NOTE: running against a remote server. The smoke test creates a user\n"
+                "and tasks that will remain in the target database after the run.\n"
+                "Do not run this against a production instance you want to keep clean.\n"
+            )
         print(f"Smoke-testing {self.base}\n")
 
         # 1. Health
