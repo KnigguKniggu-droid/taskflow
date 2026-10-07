@@ -1,0 +1,211 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>TaskFlow pitch deck</title>
+<style>
+  @page { size: 13.333in 7.5in; margin: 0; }
+  :root { --blue: #0f62fe; --ink: #161616; --muted: #525252; --line: #e0e0e0; --soft: #f2f4f8; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; background: #fff; color: var(--ink);
+    font-family: "Segoe UI", "IBM Plex Sans", Arial, sans-serif; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  .slide { width: 13.333in; height: 7.5in; padding: 0.55in 0.7in; position: relative; page-break-after: always; overflow: hidden; }
+  .slide:last-child { page-break-after: auto; }
+  .kicker { color: var(--blue); font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; font-size: 13pt; }
+  h1 { font-size: 46pt; margin: 0.15in 0 0.1in; line-height: 1.05; }
+  h2 { font-size: 30pt; margin: 0.08in 0 0.25in; line-height: 1.12; }
+  p, li { font-size: 15.5pt; line-height: 1.38; }
+  ul { margin: 0; padding-left: 1.1em; }
+  li { margin-bottom: 0.08in; }
+  .muted { color: var(--muted); }
+  .small { font-size: 12pt; }
+  .foot { position: absolute; left: 0.7in; right: 0.7in; bottom: 0.32in; display: flex; justify-content: space-between;
+    color: var(--muted); font-size: 10.5pt; border-top: 1px solid var(--line); padding-top: 0.08in; }
+  .cols { display: grid; grid-template-columns: 1fr 1fr; gap: 0.45in; }
+  .cols-60 { display: grid; grid-template-columns: 1.15fr 1fr; gap: 0.4in; align-items: start; }
+  .card { background: var(--soft); border-radius: 10px; padding: 0.2in 0.25in; }
+  .card h3 { margin: 0 0 0.08in; font-size: 15pt; color: var(--blue); }
+  .card p, .card li { font-size: 13pt; }
+  .flow { display: grid; grid-template-columns: repeat(5, 1fr); gap: 0.16in; margin-top: 0.1in; }
+  .step { background: var(--soft); border-top: 5px solid var(--blue); border-radius: 8px; padding: 0.14in 0.16in; min-height: 2.7in; }
+  .step b { display: block; font-size: 14.5pt; margin-bottom: 0.06in; }
+  .step span { font-size: 11.8pt; line-height: 1.35; display: block; color: #262626; }
+  .stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 0.18in; }
+  .stat { background: var(--soft); border-radius: 10px; padding: 0.16in 0.2in; }
+  .stat .n { font-size: 34pt; font-weight: 700; color: var(--blue); line-height: 1; }
+  .stat .l { font-size: 11.5pt; color: var(--muted); margin-top: 0.06in; }
+  img.shot { width: 100%; border: 1px solid var(--line); border-radius: 8px; }
+  .note { border-left: 4px solid var(--blue); padding: 0.08in 0.16in; background: #edf5ff; font-size: 12.5pt; margin-top: 0.18in; }
+  .title-band { position: absolute; left: 0; top: 0; bottom: 0; width: 0.28in; background: var(--blue); }
+  code { font-family: Consolas, "IBM Plex Mono", monospace; font-size: 0.92em; background: #eef0f3; padding: 0 0.05em; border-radius: 3px; }
+</style>
+</head>
+<body>
+
+<section class="slide">
+  <div class="title-band"></div>
+  <div class="kicker" style="margin-top:0.9in">Building with IBM Bob · Theme 1: Explore, Fix, and Build</div>
+  <h1>TaskFlow</h1>
+  <p style="font-size:24pt; max-width:10.5in; margin-top:0.05in">From an unfamiliar, quietly broken codebase to a tested, deployable team task board, engineered with IBM Bob.</p>
+  <div style="margin-top:0.55in" class="cols">
+    <div class="card"><h3>Team</h3><p>Solo participant<br><span class="muted">Live demo: kltamu.pythonanywhere.com<br>Code: github.com/KnigguKniggu-droid/taskflow</span></p></div>
+    <div class="card"><h3>Built with</h3><p>IBM Bob IDE 2.2.1 and Bob Shell 2.0.5 · Python, Flask, SQLite · vanilla JavaScript · GitHub Actions</p></div>
+  </div>
+  <div class="foot"><span>Team and project introduction</span><span>1</span></div>
+</section>
+
+<section class="slide">
+  <div class="kicker">The developer problem</div>
+  <h2>Every developer inherits code they did not write.</h2>
+  <div class="cols-60">
+    <div>
+      <ul>
+        <li>A small Flask + SQLite task API, new to the person who now owns it.</li>
+        <li>One behaviour is silently wrong: overdue tasks never show up.</li>
+        <li>One requirement is unbuilt: filtering tasks by tag.</li>
+        <li>No user interface, no release process, no project tooling.</li>
+      </ul>
+      <p style="margin-top:0.25in"><b>Question:</b> can IBM Bob take a developer from zero context to a diagnosed fix, new features, reviewed changes and a deployable product, with every step checkable?</p>
+    </div>
+    <div class="card">
+      <h3>Why this use case</h3>
+      <p>Onboarding onto brownfield code is where developers lose the most time: reading unfamiliar structure, finding a cause rather than a symptom, and changing things without breaking what already works. That is exactly where an AI engineering partner has to earn trust.</p>
+    </div>
+  </div>
+  <div class="foot"><span>Project introduction</span><span>2</span></div>
+</section>
+
+<section class="slide">
+  <div class="kicker">Starting point</div>
+  <h2>A verifiable baseline, tagged before Bob saw it</h2>
+  <div class="cols">
+    <div>
+      <ul>
+        <li>Git tag <code>pre-bob-baseline</code>, pushed to GitHub before Bob's first prompt.</li>
+        <li>4 tests, 3 passing; <code>GET /tasks/overdue</code> returned nothing for past-due tasks.</li>
+        <li>No <code>?tag=</code> filter, JSON API only.</li>
+      </ul>
+    </div>
+    <div class="card">
+      <h3>Disclosure</h3>
+      <p>The starter was generated with Claude Code for this exercise and contained one deliberately seeded defect and the unbuilt filter. Bob was never told the answer. At the participant's direction, Claude Code also operated the Bob sessions: it wrote the prompts, handled Bob's approval requests and checked every stage independently, reporting only observed failures back to Bob. Every code change after the tag was made by IBM Bob.</p>
+    </div>
+  </div>
+  <div class="note">Every Bob session is exported in the repository under <code>bob_sessions/</code> (31 task records with Bob task ids), so each claim in this deck can be traced to a prompt, Bob's answer and a commit.</div>
+  <div class="foot"><span>Project summary</span><span>3</span></div>
+</section>
+
+<section class="slide">
+  <div class="kicker">How IBM Bob was used</div>
+  <h2>Bob was the engineering workflow, not a bolt-on</h2>
+  <div class="flow">
+    <div class="step"><b>Explore</b><span><code>/init</code> and an <code>AGENTS.md</code> project context; Plan mode walked the request lifecycle, data model and risk areas before any edit.</span></div>
+    <div class="step"><b>Diagnose</b><span>Agent mode ran the tests and traced the failure from assertion to schema without hints; Ask mode explained SQL NULL semantics and repair options.</span></div>
+    <div class="step"><b>Fix and build</b><span>Agent mode implemented plans milestone by milestone, running the suite and committing after each step.</span></div>
+    <div class="step"><b>Tooling Bob made</b><span>3 project skills, a <code>/verify-taskflow</code> command, a read-only TaskFlow Reviewer mode and a regression-check hook via <code>/configure-hooks</code>.</span></div>
+    <div class="step"><b>Review</b><span>Subagent reviews (4 axes, then 5 adversarial lenses), reviewer-mode runs and the IDE's built-in <code>/review</code> with the Findings panel.</span></div>
+  </div>
+  <p class="small muted" style="margin-top:0.2in">Used in Bob IDE and Bob Shell: Agent, Plan and Ask modes, the custom reviewer mode, and the IBM i Database and IBM i Developer modes for exploratory portability questions.</p>
+  <div class="foot"><span>Project summary</span><span>4</span></div>
+</section>
+
+<section class="slide">
+  <div class="kicker">Fix</div>
+  <h2>What Bob diagnosed and repaired</h2>
+  <div class="cols">
+    <div class="card">
+      <h3>The seeded defect</h3>
+      <p><code>completed</code> was stored as NULL, and <code>completed = 0</code> is never true for NULL under SQL three-valued logic, so every new task vanished from the overdue list. Bob fixed the schema default, backfilled old rows, made inserts explicit, and proved it on databases created by the old schema.</p>
+    </div>
+    <div class="card">
+      <h3>Exact tag filtering</h3>
+      <p><code>?tag=back</code> must not match <code>backend</code>. Bob matched whole tokens and escaped LIKE wildcards after a failure was reported (<code>a_b</code> matched <code>axb</code>).</p>
+    </div>
+    <div class="card">
+      <h3>Found by reviews</h3>
+      <p>Unbounded error reflection, a 500 on oversized ids in PATCH, foreign keys switched off after schema setup, a keyboard trap in the edit dialog, missing security headers.</p>
+    </div>
+    <div class="card">
+      <h3>Concurrency</h3>
+      <p>Simultaneous completions wrote duplicate history rows (109 of 200 trials). Bob's first fix did not hold; with the measurement in hand it switched to compare-and-swap updates: 0 of 200.</p>
+    </div>
+  </div>
+  <div class="foot"><span>Project summary</span><span>5</span></div>
+</section>
+
+<section class="slide">
+  <div class="kicker">Build</div>
+  <h2>What Bob built on top</h2>
+  <div class="cols-60">
+    <div>
+      <ul>
+        <li><b>Team task board UI:</b> summary cards, filters, create, edit and complete; ES modules, keyboard accessible, responsive, dark mode.</li>
+        <li><b>Task lifecycle:</b> open, in progress, blocked, completed; disallowed transitions return 409.</li>
+        <li><b>Activity history:</b> an immutable timeline per task, with a non-destructive upgrade for databases from earlier versions.</li>
+        <li><b>Release:</b> WSGI entry point, <code>/health</code>, a 22-check smoke test, PythonAnywhere deployment guide, GitHub Actions CI.</li>
+      </ul>
+    </div>
+    <div><img class="shot" style="max-height:5.2in; width:auto; max-width:100%" src="board.png" alt="TaskFlow task board with lifecycle statuses"></div>
+  </div>
+  <div class="foot"><span>Project summary</span><span>6</span></div>
+</section>
+
+<section class="slide">
+  <div class="kicker">Proof</div>
+  <h2>Measured, not claimed</h2>
+  <div class="stats">
+    <div class="stat"><div class="n">39</div><div class="l">commits by IBM Bob after the baseline, 29 files</div></div>
+    <div class="stat"><div class="n">103</div><div class="l">automated tests, up from 4 (3 passing)</div></div>
+    <div class="stat"><div class="n">63/63</div><div class="l">independent behaviour checks pass</div></div>
+    <div class="stat"><div class="n">14/14</div><div class="l">injected faults caught by Bob's tests (mutation check)</div></div>
+  </div>
+  <div class="cols-60" style="margin-top:0.25in">
+    <div>
+      <ul class="small">
+        <li>Live on PythonAnywhere; Bob's 22-check smoke test passes against the public URL.</li>
+        <li>CI green on GitHub Actions; old-schema databases upgrade in place.</li>
+        <li>Bob's own <code>/review</code> found 4 issues; all fixed in one commit.</li>
+        <li>About 101 of the 200 hackathon Bobcoins used.</li>
+      </ul>
+    </div>
+    <div><img class="shot" style="max-height:3.7in; width:auto; max-width:100%" src="ide-review-findings.png" alt="Bob IDE built-in review findings"></div>
+  </div>
+  <div class="foot"><span>Project summary</span><span>7</span></div>
+</section>
+
+<section class="slide">
+  <div class="kicker">Future roadmap</div>
+  <h2>Learnings, room for improvement, next steps</h2>
+  <div class="cols">
+    <div class="card">
+      <h3>Key learnings</h3>
+      <ul>
+        <li>Bob found the root cause without hints and reasoned carefully about migrations.</li>
+        <li>Verify Bob's fixes by measuring them: two fixes looked right but failed until Bob saw the evidence.</li>
+        <li>Bob-made skills, a command, a mode and a hook made later work faster and checkable.</li>
+      </ul>
+    </div>
+    <div class="card">
+      <h3>Room for improvement</h3>
+      <ul>
+        <li>No authentication or team workspaces yet.</li>
+        <li>SQLite suits one worker; scaling out needs Postgres.</li>
+        <li>No pagination or search in the board.</li>
+      </ul>
+      <h3 style="margin-top:0.16in">Next steps</h3>
+      <ul>
+        <li>Accounts and workspaces, pagination and search, a Postgres option, overdue notifications.</li>
+      </ul>
+    </div>
+  </div>
+  <p class="small muted" style="margin-top:0.2in">Live demo: https://kltamu.pythonanywhere.com · Repository: https://github.com/KnigguKniggu-droid/taskflow</p>
+  <div class="foot"><span>Future roadmap</span><span>8</span></div>
+</section>
+
+<script>
+  // deck.html?slide=N shows a single slide (used to render previews); printing ignores this.
+  const n = parseInt(new URLSearchParams(location.search).get('slide') || '0', 10);
+  if (n > 0) document.querySelectorAll('.slide').forEach((s, i) => { if (i !== n - 1) s.style.display = 'none'; });
+</script>
+</body>
+</html>
