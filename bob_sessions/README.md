@@ -90,5 +90,8 @@ a deployable release with CI, and an adversarial release review.
 | [30](30-ide-adversarial-review.md) | Adversarial release-readiness review with five subagent lenses; six defects fixed | `d1c6d047633ceda52365b6e410e6beba` | Agent | `7b6cddc` |
 | [31](31-ide-race-fix.md) | Follow-up on an observed concurrency failure (duplicate activity rows); fixed with conditional updates | `fbb3a8b1e92f66f6e510fa1c5e5198e7` | Agent | `8f46140` |
 
+| [33](33-ide-deploy-docs.md) | After Claude deployed to PythonAnywhere with Bob's guide: four observed guide problems fixed and a quick-start section for judges added (sent into task 31's IDE task) | `fbb3a8b1e92f66f6e510fa1c5e5198e7` | Agent | `6f2598a` |
+| [32](32-ide-polish-seed.md) | Feature freeze: visual polish for the live demo, an admin-only demo seed script, then phone-width follow-ups. Two of Claude's phone-width reports came from a flawed measurement (headless browser minimum window width); Claude said so and Bob removed the one rule it had added for them | `562fb25bb3af2523f3bd492a78797a53` | Agent | `3023fde` `81052e4` `ebb2487` `b3e7088` `3dd5c36` |
+
 Screenshots of the result: [task board](../docs/screenshots/taskboard-ui.jpg),
 [lifecycle statuses](../docs/screenshots/taskboard-lifecycle.jpg).

@@ -91,7 +91,7 @@
       <p>The starter was generated with Claude Code for this exercise and contained one deliberately seeded defect and the unbuilt filter. Bob was never told the answer. At the participant's direction, Claude Code also operated the Bob sessions: it wrote the prompts, handled Bob's approval requests and checked every stage independently, reporting only observed failures back to Bob. Every code change after the tag was made by IBM Bob.</p>
     </div>
   </div>
-  <div class="note">Every Bob session is exported in the repository under <code>bob_sessions/</code> (31 task records with Bob task ids), so each claim in this deck can be traced to a prompt, Bob's answer and a commit.</div>
+  <div class="note">Every Bob session is exported in the repository under <code>bob_sessions/</code> (33 records with Bob task ids), so each claim in this deck can be traced to a prompt, Bob's answer and a commit.</div>
   <div class="foot"><span>Project summary</span><span>3</span></div>
 </section>
 
@@ -127,7 +127,7 @@
     </div>
     <div class="card">
       <h3>Concurrency</h3>
-      <p>Simultaneous completions wrote duplicate history rows (109 of 200 trials). Bob's first fix did not hold; with the measurement in hand it switched to compare-and-swap updates: 0 of 200.</p>
+      <p>Simultaneous completions wrote duplicate history rows in 109 of 200 stress trials. Bob's first fix did not hold; given only that measurement, it switched to compare-and-swap updates, and the probe then observed 0 duplicates in 200 trials.</p>
     </div>
   </div>
   <div class="foot"><span>Project summary</span><span>5</span></div>
@@ -154,7 +154,7 @@
   <div class="kicker">Proof</div>
   <h2>Measured, not claimed</h2>
   <div class="stats">
-    <div class="stat"><div class="n">39</div><div class="l">commits by IBM Bob after the baseline, 29 files</div></div>
+    <div class="stat"><div class="n">44</div><div class="l">commits made in IBM Bob sessions after the baseline, 30 files</div></div>
     <div class="stat"><div class="n">103</div><div class="l">automated tests, up from 4 (3 passing)</div></div>
     <div class="stat"><div class="n">63/63</div><div class="l">independent behaviour checks pass</div></div>
     <div class="stat"><div class="n">14/14</div><div class="l">injected faults caught by Bob's tests (mutation check)</div></div>
@@ -165,7 +165,7 @@
         <li>Live on PythonAnywhere; Bob's 22-check smoke test passes against the public URL.</li>
         <li>CI green on GitHub Actions; old-schema databases upgrade in place.</li>
         <li>Bob's own <code>/review</code> found 4 issues; all fixed in one commit.</li>
-        <li>About 101 of the 200 hackathon Bobcoins used.</li>
+        <li>About 109 of the 200 hackathon Bobcoins used.</li>
       </ul>
     </div>
     <div><img class="shot" style="max-height:3.7in; width:auto; max-width:100%" src="ide-review-findings.png" alt="Bob IDE built-in review findings"></div>
@@ -180,7 +180,7 @@
     <div class="card">
       <h3>Key learnings</h3>
       <ul>
-        <li>Bob found the root cause without hints and reasoned carefully about migrations.</li>
+        <li>Bob identified the seeded defect's root cause without diagnostic hints and reasoned carefully about migrations.</li>
         <li>Verify Bob's fixes by measuring them: two fixes looked right but failed until Bob saw the evidence.</li>
         <li>Bob-made skills, a command, a mode and a hook made later work faster and checkable.</li>
       </ul>

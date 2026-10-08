@@ -30,7 +30,7 @@ Each test uses a temporary database; there is no shared state.
 
 **IBM Bob session records:** [`bob_sessions/README.md`](bob_sessions/README.md)
 contains the full session index — prompts, Bob's answers, task IDs, durations,
-and commit references for all 31 tasks across three Bob sessions.
+and commit references for all 33 session records across three Bob sessions.
 
 ---
 
