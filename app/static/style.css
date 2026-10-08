@@ -39,12 +39,6 @@
   box-sizing: border-box;
 }
 
-/* Prevent the viewport from ever scrolling horizontally.
-   Must be on html (not body) so it establishes the scroll container. */
-html {
-  overflow-x: clip;
-}
-
 body {
   font-family: -apple-system, "Segoe UI", system-ui, sans-serif;
   font-size: 15px;
