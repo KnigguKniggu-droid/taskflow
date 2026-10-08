@@ -46,6 +46,14 @@ export function renderStatCards(stats) {
   document.getElementById('stat-blocked').textContent     = stats.blocked ?? '—';
   document.getElementById('stat-overdue').textContent     = stats.overdue;
   document.getElementById('stat-completed').textContent   = stats.completed;
+  _updateOverdueAlert(stats.overdue);
+}
+
+function _updateOverdueAlert(count) {
+  const dd = document.getElementById('stat-overdue');
+  const dl = dd ? dd.closest('dl') : null;
+  if (!dl) return;
+  dl.classList.toggle('stat-overdue-alert', Number(count) > 0);
 }
 
 export function populateUserSelect(users, selectEl, allLabel = '— All —') {
@@ -87,6 +95,8 @@ export function renderTask(task, usersMap) {
   const isOverdue = task.status !== 'completed' && task.due_date && task.due_date < today;
 
   const li = document.createElement('li');
+  if (isOverdue) li.classList.add('task-overdue');
+  if (task.status === 'completed') li.classList.add('task-completed');
 
   // ── Row 1: title ────────────────────────────────────────────────────
   const titleRow = document.createElement('div');
@@ -158,6 +168,7 @@ export function renderFilteredStats(tasks) {
   document.getElementById('stat-blocked').textContent     = blocked;
   document.getElementById('stat-overdue').textContent     = overdue;
   document.getElementById('stat-completed').textContent   = completed;
+  _updateOverdueAlert(overdue);
 }
 
 export function renderTaskDetail(task, usersMap) {
@@ -282,10 +293,11 @@ export function renderActivityTimeline(activities) {
   for (const entry of activities) {
     const label = ACTIVITY_LABELS[entry.event] || entry.event;
     const timeStr = _fmtActivityTime(entry.created_at);
+    const dotClass = _activityDotClass(entry.event);
 
     const li = document.createElement('li');
     li.innerHTML = `
-      <span class="activity-dot" aria-hidden="true">●</span>
+      <span class="activity-dot ${escHtml(dotClass)}" aria-hidden="true"></span>
       <div class="activity-content">
         <div class="activity-header">
           <span class="activity-label">${escHtml(label)}</span>
@@ -296,6 +308,13 @@ export function renderActivityTimeline(activities) {
     list.appendChild(li);
   }
   section.hidden = false;
+}
+
+function _activityDotClass(event) {
+  if (event === 'created')        return 'dot-created';
+  if (event === 'status_changed') return 'dot-status';
+  if (event === 'completed')      return 'dot-completed';
+  return 'dot-edit';
 }
 
 function _fmtActivityTime(isoStr) {
