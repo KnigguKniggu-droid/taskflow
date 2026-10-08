@@ -191,6 +191,72 @@ Exit code is 0 if all checks pass, 1 otherwise.
 > server for routine checks; running it against a live instance is fine for a one-time
 > deployment verification but will leave test records in the production database.
 
+## Demo data
+
+`scripts/seed_demo.py` is an admin-only command-line script that loads a
+deterministic, realistic dataset into any running TaskFlow instance through its
+public API. It creates four users and thirteen tasks that cover every status
+(open, in_progress, blocked, completed), some overdue items, and a mix of tags
+and assignees — so a fresh deployment is demo-ready in seconds.
+
+**Prerequisites:** Python 3.10+ (no extra packages needed; the script uses the
+stdlib `urllib` module only).
+
+### Seeding the local dev server
+
+```bash
+# 1. Start the server in one terminal
+python run.py
+
+# 2. In another terminal, run the seed script
+python scripts/seed_demo.py
+```
+
+### Seeding a deployed PythonAnywhere instance
+
+```bash
+python scripts/seed_demo.py --base-url https://<username>.pythonanywhere.com
+```
+
+### Resetting the database before a demo run
+
+The seed script does **not** check for pre-existing data. Run it against an
+empty database to avoid duplicate entries.
+
+**Locally:**
+
+```bash
+# Stop the server, then delete the SQLite file and restart
+rm instance/taskflow.sqlite
+python run.py
+python scripts/seed_demo.py
+```
+
+**On PythonAnywhere** (the database lives in persistent storage outside the
+source tree):
+
+1. Open a **Bash console** on PythonAnywhere.
+2. Delete the SQLite file:
+
+   ```bash
+   rm ~/taskflow-data/taskflow.sqlite
+   ```
+
+3. **Reload the web app** in the PythonAnywhere Web tab so the app recreates
+   the schema on the next request.
+
+4. Seed the demo data:
+
+   ```bash
+   python ~/taskflow/scripts/seed_demo.py \
+     --base-url https://<username>.pythonanywhere.com
+   ```
+
+> **Caution:** deleting the SQLite file permanently destroys all stored data.
+> Only do this when you intentionally want a clean slate.
+
+---
+
 ## Deploying to PythonAnywhere (free tier)
 
 PythonAnywhere provides persistent disk and WSGI hosting configured through its web UI —
