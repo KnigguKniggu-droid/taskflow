@@ -46,8 +46,10 @@ body {
   background: var(--color-bg);
   color: var(--color-text);
   max-width: 960px;
+  width: 100%;
   margin: 0 auto;
   padding: var(--space-md);
+  overflow-x: hidden;
 }
 
 /* --- Header ------------------------------------------------------- */
@@ -66,7 +68,7 @@ header h1 {
   font-size: 1.5rem;
   font-weight: 700;
   letter-spacing: -0.01em;
-  flex-shrink: 0;
+  min-width: 0;
 }
 
 /* The "New task" CTA lives inside the header for prominence */
@@ -220,6 +222,7 @@ header h1 {
   display: flex;
   align-items: baseline;
   gap: var(--space-sm);
+  min-width: 0;
 }
 
 /* Second row: badge, tags, due date, assignee — smaller metadata */
@@ -261,6 +264,9 @@ header h1 {
   color: var(--color-text);
   text-align: left;
   line-height: 1.3;
+  min-width: 0;
+  overflow-wrap: break-word;
+  word-break: break-word;
 }
 
 .task-title-btn:hover {
@@ -672,14 +678,18 @@ button.btn-primary:hover {
     flex-wrap: wrap;
   }
 
+  header h1 {
+    flex-shrink: 1;
+  }
+
   #btn-new-task {
     width: 100%;
     justify-content: center;
-    order: 3; /* title, h1, then button */
+    order: 3;
   }
 
   #stats {
-    grid-template-columns: repeat(3, 1fr);
+    grid-template-columns: repeat(2, 1fr);
   }
 
   #filter-form {
@@ -687,8 +697,13 @@ button.btn-primary:hover {
     align-items: stretch;
   }
 
+  #filter-form label {
+    margin-bottom: 0;
+  }
+
   #filter-form select,
-  #filter-form input[type="text"] {
+  #filter-form input[type="text"],
+  #filter-form button {
     width: 100%;
   }
 
