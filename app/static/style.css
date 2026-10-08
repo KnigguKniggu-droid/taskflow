@@ -39,6 +39,12 @@
   box-sizing: border-box;
 }
 
+/* Prevent the viewport from ever scrolling horizontally.
+   Must be on html (not body) so it establishes the scroll container. */
+html {
+  overflow-x: clip;
+}
+
 body {
   font-family: -apple-system, "Segoe UI", system-ui, sans-serif;
   font-size: 15px;
@@ -46,10 +52,8 @@ body {
   background: var(--color-bg);
   color: var(--color-text);
   max-width: 960px;
-  width: 100%;
   margin: 0 auto;
   padding: var(--space-md);
-  overflow-x: hidden;
 }
 
 /* --- Header ------------------------------------------------------- */
@@ -104,6 +108,8 @@ header h1 {
   grid-template-columns: repeat(6, 1fr);
   gap: var(--space-sm);
   margin-bottom: var(--space-xs);
+  /* Prevent the grid from ever stretching wider than its container */
+  min-width: 0;
 }
 
 #stats-note {
@@ -166,6 +172,9 @@ header h1 {
   background: var(--color-surface);
   border: 1px solid var(--color-border);
   border-radius: var(--radius);
+  /* Never let the form stretch wider than its container */
+  min-width: 0;
+  max-width: 100%;
 }
 
 #filter-form label {
@@ -178,7 +187,7 @@ header h1 {
 #filter-form select,
 #filter-form input[type="text"] {
   width: auto;
-  min-width: 140px;
+  min-width: 0;
   font-size: 0.9rem;
   padding: 5px var(--space-sm);
 }
@@ -188,6 +197,7 @@ header h1 {
   list-style: none;
   padding: 0;
   margin: 0 0 var(--space-md) 0;
+  min-width: 0;
 }
 
 #task-list li {
@@ -200,6 +210,9 @@ header h1 {
   flex-direction: column;
   gap: 6px;
   transition: border-color 0.1s, box-shadow 0.1s;
+  /* Prevent card content from stretching the card wider than its container */
+  min-width: 0;
+  max-width: 100%;
 }
 
 #task-list li:hover {
@@ -680,12 +693,15 @@ button.btn-primary:hover {
 
   header h1 {
     flex-shrink: 1;
+    min-width: 0;
   }
 
   #btn-new-task {
     width: 100%;
     justify-content: center;
     order: 3;
+    /* Allow button to shrink below its padding on very narrow screens */
+    flex-shrink: 1;
   }
 
   #stats {
@@ -695,6 +711,8 @@ button.btn-primary:hover {
   #filter-form {
     flex-direction: column;
     align-items: stretch;
+    /* Compact padding on mobile so the form sits flush with body padding */
+    padding: var(--space-sm);
   }
 
   #filter-form label {
@@ -705,6 +723,7 @@ button.btn-primary:hover {
   #filter-form input[type="text"],
   #filter-form button {
     width: 100%;
+    min-width: 0;
   }
 
   .task-detail-fields {
